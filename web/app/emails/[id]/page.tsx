@@ -1,81 +1,27 @@
+import Link from "next/link";
 import { api, COMPARE_FIELDS } from "@/lib/api";
+import { FIELDS, QUEUES, REASONS } from "@/lib/labels";
+import StatusBadge from "../../components/StatusBadge";
 import LlmAssist from "./LlmAssist";
 import ReviewActions from "./ReviewActions";
-
+import Attachments from "./Attachments";
 export const dynamic = "force-dynamic";
-
 export default async function EmailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const e = await api.email(id);
   const r = e.result;
-
-  const verdict =
-    r?.status === "MISMATCH"
-      ? `${r.defect_fields.length} field${r.defect_fields.length > 1 ? "s" : ""} differ`
-      : r?.status === "NEEDS_REVIEW"
-        ? `Escalated: ${r.review_reason}`
-        : r?.status === "OK" && r.category === "BL_COMPARISON"
-          ? "No mismatch detected"
-          : r?.status === "OK"
-            ? "Triaged — no document check needed"
-            : "Not processed yet";
-
-  return (
-    <>
-      <h1>{e.email_id}</h1>
-      <h2>{e.subject}</h2>
-
-      <div className="cards">
-        <div className="card"><div className="lbl">From</div><div>{e.sender}</div></div>
-        <div className="card"><div className="lbl">Queue</div><div>{r?.category ?? "—"} {r?.decided_by && <span className="badge dim">{r.decided_by}</span>}</div></div>
-        <div className="card"><div className="lbl">Verdict</div>
-          <div style={{ color: r?.status === "MISMATCH" ? "var(--bad)" : r?.status === "NEEDS_REVIEW" ? "var(--warn)" : "var(--ok)" }}>{verdict}</div>
-        </div>
-      </div>
-
-      {r && <ReviewActions resultId={r.result_id} status={r.status} />}
-
-      {r?.si_fields && r?.bl_fields && (
-        <>
-          <h2>SI vs draft BL — field comparison</h2>
-          <table className="diff">
-            <thead><tr><th>Field</th><th>SI (reference)</th><th>Draft BL</th><th></th></tr></thead>
-            <tbody>
-              {COMPARE_FIELDS.map((f) => {
-                const diff = r.defect_fields.includes(f);
-                return (
-                  <tr key={f}>
-                    <td>{f}</td>
-                    <td className={diff ? "mismatch" : ""}>{String(r.si_fields?.[f] ?? "—")}</td>
-                    <td className={diff ? "mismatch" : ""}>{String(r.bl_fields?.[f] ?? "—")}</td>
-                    <td className={diff ? "mismatch" : "match"}>{diff ? "✗ differs" : "✓"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {r?.doc_types && (
-        <>
-          <h2>Detected document types</h2>
-          <pre>{JSON.stringify(r.doc_types, null, 2)}</pre>
-        </>
-      )}
-      {r?.evidence && (
-        <>
-          <h2>Evidence</h2>
-          <pre>{JSON.stringify(r.evidence, null, 2)}</pre>
-        </>
-      )}
-      {r?.error && (<><h2>Error</h2><pre>{r.error}</pre></>)}
-
-      <LlmAssist emailId={e.email_id} />
-
-      <h2>Original email</h2>
-      <pre>{e.body}</pre>
-      {e.attachments.length > 0 && <pre>{e.attachments.join("\n")}</pre>}
-    </>
-  );
+  return <>
+    <Link className="text-link" href="/inbox">← Back to inbox</Link><div className="page-heading" style={{marginTop:20}}><div><div className="eyebrow">{e.email_id} · {r ? QUEUES[r.category] ?? r.category : "Awaiting triage"}</div><h1>{e.subject}</h1><p>From {e.sender}</p></div><StatusBadge status={r?.status ?? null}/></div>
+    {r?.review_reason && <div className="hero-note"><strong>{REASONS[r.review_reason] ?? r.review_reason}</strong><span className="muted">Inspect the attachments before making a decision.</span></div>}
+    {r?.error && <p className="error" role="alert">{r.error}</p>}
+    {r?.si_fields && r?.bl_fields && <><div className="section-heading"><h2>Shipping instruction vs. draft BL</h2><span className="badge dim">7 fields · SI is the reference</span></div><div className="table-wrap"><table className="diff"><thead><tr><th>Field</th><th>Shipping instruction</th><th>Draft Bill of Lading</th><th>Finding</th></tr></thead><tbody>{COMPARE_FIELDS.map(f => {
+      const diff = r.defect_fields.includes(f);
+      const missing = r.si_fields?.[f] == null || r.bl_fields?.[f] == null || r.si_fields?.[f] === "" || r.bl_fields?.[f] === "";
+      return <tr key={f}><td>{FIELDS[f]}</td><td className={diff ? "mismatch" : ""}>{String(r.si_fields?.[f] ?? "—")}</td><td className={diff ? "mismatch" : ""}>{String(r.bl_fields?.[f] ?? "—")}</td><td><span className={`badge ${missing ? "warn" : diff ? "bad" : "ok"}`}>{missing ? "Missing value" : diff ? "Differs" : "No flagged defect"}</span></td></tr>;
+    })}</tbody></table></div></>}
+    {r && <ReviewActions key={`${r.result_id}-${r.status}-${r.defect_fields.join()}`} resultId={r.result_id} status={r.status} defectFields={r.defect_fields} canCompare={r.category === "BL_COMPARISON"}/>}
+    <div className="grid2"><Attachments emailId={id} files={e.attachments}/><LlmAssist emailId={id}/></div>
+    <details className="panel"><summary>Original email</summary><pre className="email-body">{e.body}</pre></details>
+    {r && <details className="panel"><summary>Detection evidence & classification source</summary><p className="muted">Classification: {r.decided_by === "llm" ? "model" : r.decided_by || "unknown"}. Review actions can override the original verdict.</p><pre>{JSON.stringify({document_types:r.doc_types,evidence:r.evidence},null,2)}</pre></details>}
+  </>;
 }

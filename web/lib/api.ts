@@ -77,3 +77,12 @@ export const COMPARE_FIELDS = [
   "container_count",
   "gross_weight_kg",
 ] as const;
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${PUBLIC_API}${path}`, { ...init, signal: AbortSignal.timeout(120000) });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(typeof body?.detail === "string" ? body.detail : `Request failed (${response.status}). Please try again.`);
+  }
+  return response.json();
+}
