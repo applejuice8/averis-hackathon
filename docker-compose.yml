@@ -1,0 +1,33 @@
+# SDOC Verifier — web + api + provided scorer (dev/eval).
+#   docker compose up --build
+# web -> http://localhost:3000   api -> http://localhost:8000   scorer -> :8080
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file: .env               # NEON_DB_URI, OPENROUTER_API_KEY
+    environment:
+      DATA_DIR: /data
+      SCORER_URL: http://scorer:8000
+    volumes:
+      - ./docs-provided/problem-statement/sdoc-hackathon-bundle:/data:ro
+    ports:
+      - "8000:8000"
+
+  web:
+    build: ./web
+    environment:
+      API_URL: http://api:8000   # server-side fetch over the compose network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  scorer:                        # provided eval server; dev-only dependency
+    build: ./docs-provided/problem-statement/sdoc-hackathon-docker/server
+    volumes:
+      - ./docs-provided/problem-statement/sdoc-hackathon-docker/data_v2:/data:ro
+      - ./docs-provided/problem-statement/sdoc-hackathon-docker/data_v2/ground_truth.json:/secrets/ground_truth.json:ro
+    ports:
+      - "8080:8000"
