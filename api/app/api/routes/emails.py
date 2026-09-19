@@ -34,3 +34,18 @@ async def get_email(email_id: str, s: AsyncSession = Depends(get_db)):
         attachments=email.attachments or [],
         result=ResultDetail.from_orm_row(res) if res else None,
     )
+
+
+@router.get("/emails/{email_id}/attachments/{index}")
+async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depends(get_db)):
+    from starlette.concurrency import run_in_threadpool
+
+    from ...core.config import settings
+    from ...services.attachments import preview_attachment
+
+    email = await emails_repo.get_by_id(s, email_id)
+    if email is None:
+        raise HTTPException(404, "No such email")
+    return await run_in_threadpool(
+        preview_attachment, settings.resolved_data_dir, email.attachments or [], index
+    )
