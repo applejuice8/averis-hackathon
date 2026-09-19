@@ -132,3 +132,31 @@ def extract_fields(text: str) -> dict:
         else:
             fields[f] = _parse_number(v) if f in NUMERIC_FIELDS else v
     return {"fields": fields, "raw": raw, "missing_fields": missing}
+
+
+EXTRACT_SYS = """Extract these fields from a shipping document; null when not present.
+shipper: exporter/seller name+address.  consignee: buyer name+address — on a BL the
+Consignee/To-the-Order-of/Consigned-to line, NOT the Notify party.  notify_party: the
+Notify/Notify Party company.  port_of_loading / port_of_discharge: full port name with
+country if shown (also called Load Port / POL / Port of Shipment / Discharge Port /
+Place of Delivery).  container_count: integer total of containers across all sizes.
+gross_weight_kg: total gross cargo weight in KG.
+Reply with ONLY JSON: {"shipper": ..., "consignee": ..., "notify_party": ...,
+"port_of_loading": ..., "port_of_discharge": ..., "container_count": int|null,
+"gross_weight_kg": number|null}"""
+
+
+def extract_fields_llm(text: str) -> dict | None:
+    """LLM fill-in for fields the deterministic parse missed."""
+    try:
+        from app.llm import llm_json
+
+        r = llm_json(
+            [
+                {"role": "system", "content": EXTRACT_SYS},
+                {"role": "user", "content": text[:12000]},
+            ]
+        )
+        return {k: r.get(k) for k in COMPARE_FIELDS}
+    except Exception:
+        return None

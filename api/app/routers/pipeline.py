@@ -11,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.run import run_pipeline  # noqa: E402
 from pipeline.submission import build_submission, submit  # noqa: E402
+from pipeline.verdict import llm_assist  # noqa: E402
 
+from ..config import DATA_DIR  # noqa: E402
 from ..db import SessionLocal  # noqa: E402
-from ..models import PipelineResult, Run  # noqa: E402
+from ..models import Email, PipelineResult, Run  # noqa: E402
 
 router = APIRouter(prefix="/api")
 
@@ -91,3 +93,20 @@ async def submit_run(run_id: str):
         return await submit(run_id)
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+@router.get("/pipeline/llm-assist/{email_id}")
+async def llm_assist_email(email_id: str, s: AsyncSession = Depends(get_session)):
+    """On-demand AI view of an email (classification + extraction/OCR).
+    Demo endpoint — results are returned, never persisted."""
+    email = await s.get(Email, email_id)
+    if not email:
+        raise HTTPException(404, "no such email")
+    rec = {
+        "email_id": email.email_id,
+        "from": email.sender,
+        "subject": email.subject,
+        "body": email.body,
+        "attachments": email.attachments,
+    }
+    return llm_assist(rec, DATA_DIR)

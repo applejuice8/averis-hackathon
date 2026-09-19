@@ -181,7 +181,7 @@ client = OpenAI(
 )
 
 TEXT_MODEL   = "nvidia/nemotron-3-ultra-550b-a55b:free"   # classification + extraction
-VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"      # cheapest image-capable on OR
+VISION_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"      # cheapest image-capable on OR
 ```
 
 **Two OpenRouter-specific caveats baked into `llm.py`:**
@@ -251,7 +251,7 @@ Uniform interface: `read(path) -> DocText(text, doc_type_hint, readable: bool, m
 | `.pdf` | `pypdf`/`pdfplumber` text layer | if extracted text ≈ empty → image-only → OCR path |
 | `.docx` | `python-docx` | tables → row-joined text (handles bilingual 中文 labels) |
 | `.xlsx` | `openpyxl` | cells → `label: value` lines |
-| scanned/empty/garbled | render page (`pypdfium2`) → **VISION_MODEL** (`nvidia/nemotron-nano-12b-v2-vl:free`) image input | or mark `unreadable` if OCR confidence low |
+| scanned/empty/garbled | render page (`pypdfium2`) → **VISION_MODEL** (`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`) image input | or mark `unreadable` if OCR confidence low |
 
 Every reader returns `readable=False` on corrupt/empty input → feeds `unreadable`
 escalation rather than a crash.
@@ -376,7 +376,7 @@ The web container talks to `http://api:8000` server-side (compose network) and e
 |---|---|---|---|
 | Email classification (fallback) | `nvidia/nemotron-3-ultra-550b-a55b:free` | JSON-mode prompt, temp 0 | free, strong reasoning |
 | Doc-type detection + field extraction | `nvidia/nemotron-3-ultra-550b-a55b:free` | JSON object per doc | synonym labels need semantic mapping |
-| Scanned PDF reading | `nvidia/nemotron-nano-12b-v2-vl:free` | image → same ShipmentFields JSON | cheapest image-capable model on OpenRouter; built for OCR/document intelligence |
+| Scanned PDF reading | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | image → same ShipmentFields JSON | cheapest image-capable model on OpenRouter; built for OCR/document intelligence |
 | Comparison / verdict | **none** | pure Python | determinism = exact-field precision |
 
 **Quota budget (free tier):** a full run needs roughly —
@@ -474,7 +474,7 @@ re-runs on a handful of emails instead.
 
 **Final (by 26 Sep) — "working prototype":**
 7. pdf/docx/xlsx readers; all 4 escalation detectors + review UI
-8. Vision-model OCR path via `nemotron-nano-12b-v2-vl` (show a scanned PDF being read —
+8. Vision-model OCR path via `nemotron-3-nano-omni-30b` (show a scanned PDF being read —
    even if scoring prefers escalation, it's a strong differentiator demo)
 9. Run history/scoreboard page, retries, audit trail
 10. Harden: tests green in CI, error states, demo script rehearsed

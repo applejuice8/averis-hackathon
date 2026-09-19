@@ -90,3 +90,39 @@ def classify(email) -> tuple[str, str, str]:
         return "BL_COMPARISON", "rule", "BL-doc handling request"
 
     return "GENERAL", "rule", "no category cues matched"
+
+
+CLASSIFY_SYS = """You triage a shipping-operations inbox into exactly one queue:
+BL_COMPARISON  - asks to check a draft Bill of Lading against a Shipping Instruction
+SI_REQUEST     - provides or requests a Shipping Instruction (no BL check yet)
+INVOICE_QUERY  - billing/invoice/charges/detention questions
+GENERAL        - ops updates, reports, reminders, bots, HR
+SPAM           - marketing/phishing/junk
+Reply with ONLY JSON: {"category": one of the above, "confidence": 0-1, "rationale": "short"}"""
+
+
+def classify_llm(email) -> tuple[str, str, str] | None:
+    """LLM fallback — used only when rules produce the no-cue GENERAL bucket."""
+    try:
+        from app.llm import llm_json
+
+        r = llm_json(
+            [
+                {"role": "system", "content": CLASSIFY_SYS},
+                {
+                    "role": "user",
+                    "content": (
+                        f"From: {email.get('from','')}\n"
+                        f"Subject: {email.get('subject','')}\n"
+                        f"Attachments: {email.get('attachments') or []}\n\n"
+                        f"{(email.get('body') or '')[:3000]}"
+                    ),
+                },
+            ]
+        )
+        cat = r.get("category")
+        if cat in CATEGORIES and cat != "GENERAL" and float(r.get("confidence", 0)) >= 0.7:
+            return cat, "llm", r.get("rationale", "llm fallback")
+    except Exception:
+        pass
+    return None
