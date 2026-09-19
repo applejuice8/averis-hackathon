@@ -75,7 +75,7 @@ def _needs_review(result, reason, evidence_extra):
 def _extract_doc(doc, path: str):
     """-> (doc_type, extraction | None). extraction = {fields, missing_fields}.
     None means we could not read/extract anything -> unreadable."""
-    from app import config
+    from app.core.config import settings
 
     if doc.readable:
         ext = extract_fields(doc.text)
@@ -87,7 +87,7 @@ def _extract_doc(doc, path: str):
                     "fields": llm,
                     "missing_fields": [f for f in COMPARE_FIELDS if llm.get(f) is None],
                 }
-        elif config.ENABLE_LLM_FILL and ext["missing_fields"]:
+        elif settings.enable_llm_fill and ext["missing_fields"]:
             llm = extract_fields_llm(doc.text)
             if llm:
                 for f in list(ext["missing_fields"]):
@@ -96,7 +96,7 @@ def _extract_doc(doc, path: str):
                         ext["missing_fields"].remove(f)
         return detect_doc_type(doc.text), ext
 
-    if config.ENABLE_VISION_OCR:
+    if settings.enable_vision_ocr:
         r = ocr_extract_fields(path)
         if r:
             return r["doc_type"], {
@@ -107,11 +107,11 @@ def _extract_doc(doc, path: str):
 
 
 def process_email(email: dict, data_dir: str) -> dict:
-    from app import config
+    from app.core.config import settings
 
     category, decided_by, rationale = classify(email)
     if (
-        config.ENABLE_LLM_CLASSIFY
+        settings.enable_llm_classify
         and category == "GENERAL"
         and "no category cues" in rationale
     ):

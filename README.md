@@ -251,12 +251,18 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 ├── pyproject.toml / uv.lock    root Python project (uv)
 ├── api/
 │   ├── Dockerfile              uv sync --frozen --no-dev
-│   ├── app/                    FastAPI: main, config, db, models, llm
-│   │   └── routers/            emails · pipeline · review
+│   ├── app/
+│   │   ├── main.py             lifespan + middleware + router mount
+│   │   ├── core/config.py      pydantic-settings (env, models, flags)
+│   │   ├── db/                 session.py (engine/Base) + models.py
+│   │   ├── api/                deps + router + routes/ (thin HTTP layer)
+│   │   ├── schemas/            pydantic request/response DTOs
+│   │   ├── repositories/       all SQL — routes contain none
+│   │   └── services/           llm.py (OpenRouter) + review.py (mutations)
 │   ├── pipeline/               ingest → classify → readers → extract
 │   │   └── readers/            → escalate → compare → submit
 │   │       └── ocr.py          vision-model path (pypdfium2 render)
-│   └── tests/                  14 golden fixtures, no DB/network
+│   └── tests/                  28 fixtures — golden + anti-overfit, no DB/network
 ├── web/
 │   ├── Dockerfile              pnpm install --frozen-lockfile + build
 │   ├── app/                    / inbox emails/[id] review runs

@@ -4,7 +4,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.sql import func
 
-from .db import Base
+from .session import Base
 
 
 class Email(Base):

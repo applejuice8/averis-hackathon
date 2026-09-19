@@ -5,11 +5,11 @@ import re
 from openai import OpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from . import config
+from ..core.config import settings
 
 client = OpenAI(
-    base_url=config.OPENROUTER_BASE_URL,
-    api_key=config.OPENROUTER_API_KEY,
+    base_url=settings.openrouter_base_url,
+    api_key=settings.openrouter_api_key,
     default_headers={"X-Title": "SDOC Verifier"},
 )
 
@@ -44,7 +44,7 @@ def _chat(messages, model, max_tokens):
 def llm_json(messages, model=None, max_tokens=2000):
     """Chat call that returns a parsed JSON object. One repair retry if the
     first response doesn't parse."""
-    resp = _chat(messages, model or config.TEXT_MODEL, max_tokens)
+    resp = _chat(messages, model or settings.text_model, max_tokens)
     raw = resp.choices[0].message.content or ""
     try:
         return extract_json_block(raw)
@@ -53,7 +53,7 @@ def llm_json(messages, model=None, max_tokens=2000):
             {"role": "assistant", "content": raw},
             {"role": "user", "content": "That was not valid JSON. Reply with ONLY the corrected JSON object."},
         ]
-        resp = _chat(repair, model or config.TEXT_MODEL, max_tokens)
+        resp = _chat(repair, model or settings.text_model, max_tokens)
         return extract_json_block(resp.choices[0].message.content or "")
 
 
@@ -69,5 +69,5 @@ def vision_json(prompt: str, image_png: bytes, model=None, max_tokens=2000):
             ],
         }
     ]
-    resp = _chat(messages, model or config.VISION_MODEL, max_tokens)
+    resp = _chat(messages, model or settings.vision_model, max_tokens)
     return extract_json_block(resp.choices[0].message.content or "")

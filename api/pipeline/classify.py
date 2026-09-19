@@ -105,7 +105,7 @@ Reply with ONLY JSON: {"category": one of the above, "confidence": 0-1, "rationa
 def classify_llm(email) -> tuple[str, str, str] | None:
     """LLM fallback — used only when rules produce the no-cue GENERAL bucket."""
     try:
-        from app.llm import llm_json
+        from app.services.llm import llm_json
 
         r = llm_json(
             [

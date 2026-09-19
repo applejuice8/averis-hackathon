@@ -32,7 +32,7 @@ def ocr_extract_fields(path) -> dict | None:
     """Vision-model extraction for image-only PDFs.
     Returns {"doc_type": ..., "fields": {7 canonical fields}} or None."""
     try:
-        from app.llm import vision_json
+        from app.services.llm import vision_json
 
         merged, doc_type = {}, None
         for png in render_pdf_images(path):

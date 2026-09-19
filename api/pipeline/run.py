@@ -5,30 +5,22 @@
 """
 import asyncio
 import sys
-from collections import Counter
 from pathlib import Path
 
-from sqlalchemy import func, select
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app.config import DATA_DIR  # noqa: E402
-from app.db import SessionLocal  # noqa: E402
-from app.models import Email, PipelineResult, Run  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.db.session import SessionLocal  # noqa: E402
+from app.repositories import emails as emails_repo  # noqa: E402
+from app.repositories import results as results_repo  # noqa: E402
+from app.repositories import runs as runs_repo  # noqa: E402
 
 from .verdict import process_email  # noqa: E402
 
 
 async def run_pipeline(email_ids: list[str] | None = None, label: str | None = None) -> str:
     async with SessionLocal() as s:
-        run = Run(label=label or "manual")
-        s.add(run)
-        await s.flush()
-        run_id = str(run.id)
-
-        stmt = select(Email).order_by(Email.email_id)
-        if email_ids:
-            stmt = stmt.where(Email.email_id.in_(email_ids))
-        emails = (await s.execute(stmt)).scalars().all()
+        run = await runs_repo.create(s, label or "manual")
+        emails = await emails_repo.list_all(s, email_ids)
 
         for email in emails:
             rec = {
@@ -39,7 +31,7 @@ async def run_pipeline(email_ids: list[str] | None = None, label: str | None = N
                 "attachments": email.attachments,
             }
             try:
-                r = process_email(rec, DATA_DIR)
+                r = process_email(rec, settings.resolved_data_dir)
             except Exception as e:
                 r = {
                     "email_id": email.email_id, "category": "GENERAL",
@@ -48,20 +40,12 @@ async def run_pipeline(email_ids: list[str] | None = None, label: str | None = N
                     "bl_fields": None, "doc_types": None,
                     "evidence": None, "error": f"{type(e).__name__}: {e}",
                 }
-            s.add(PipelineResult(run_id=run.id, **r))
+            await results_repo.add(s, run.id, r)
 
-        cats = Counter()
-        stats_q = await s.execute(
-            select(PipelineResult.category, PipelineResult.status, func.count())
-            .where(PipelineResult.run_id == run.id)
-            .group_by(PipelineResult.category, PipelineResult.status)
-        )
-        for cat, status, n in stats_q:
-            cats[f"{cat}:{status}"] = n
-        run.stats = dict(cats)
-        run.finished_at = func.now()
+        stats = await results_repo.stats_by_category_status(s, run.id)
+        await runs_repo.finish(s, run, stats)
         await s.commit()
-    return run_id
+    return str(run.id)
 
 
 if __name__ == "__main__":

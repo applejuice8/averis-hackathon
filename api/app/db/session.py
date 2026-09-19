@@ -1,10 +1,11 @@
+"""Engine, session factory and Base — the only place SQLAlchemy is wired."""
 import ssl
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from .config import NEON_DB_URI
+from ..core.config import settings
 
 
 def _asyncpg_uri(uri: str) -> tuple[str, dict]:
@@ -28,8 +29,8 @@ class Base(DeclarativeBase):
     pass
 
 
-if NEON_DB_URI:
-    _uri, _connect_args = _asyncpg_uri(NEON_DB_URI)
+if settings.neon_db_uri:
+    _uri, _connect_args = _asyncpg_uri(settings.neon_db_uri)
     engine = create_async_engine(_uri, connect_args=_connect_args, pool_pre_ping=True)
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 else:

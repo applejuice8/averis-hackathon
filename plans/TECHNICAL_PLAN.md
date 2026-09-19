@@ -67,12 +67,18 @@ averis-hackathon/
 ├── api/
 │   ├── Dockerfile              # uv-based image (see §9)
 │   ├── app/
-│   │   ├── main.py             # routes: /api/emails, /api/runs, /api/review...
-│   │   ├── db.py               # async engine/session (asyncpg + SQLAlchemy)
-│   │   ├── models.py           # SQLAlchemy tables
-│   │   ├── schemas.py          # Pydantic DTOs
-│   │   ├── llm.py              # OpenAI client → OpenRouter + JSON-parse helpers
-│   │   └── routers/            # emails.py, pipeline.py, review.py, exports.py
+│   │   ├── main.py             # lifespan + middleware + api_router mount
+│   │   ├── core/config.py      # pydantic-settings: env, models, feature flags
+│   │   ├── db/
+│   │   │   ├── session.py      # async engine/session/Base (asyncpg + Neon TLS)
+│   │   │   └── models.py       # SQLAlchemy tables
+│   │   ├── api/
+│   │   │   ├── deps.py         # get_db session dependency
+│   │   │   ├── router.py       # api_router aggregator (prefix /api)
+│   │   │   └── routes/         # thin HTTP adapters: emails, pipeline, review
+│   │   ├── schemas/            # Pydantic request/response DTOs (+ORM mappers)
+│   │   ├── repositories/       # ALL SQL: emails, results, runs, reviews
+│   │   └── services/           # llm.py (OpenRouter client), review.py (rules)
 │   ├── pipeline/
 │   │   ├── ingest.py           # load bundle inbox/attachments → DB
 │   │   ├── classify.py         # rules → LLM fallback → category + decided_by
@@ -488,7 +494,7 @@ re-runs on a handful of emails instead.
 |---|---|
 | OpenRouter `:free` rate limits (~50–200 req/day) + single-provider uptime | rules-first classification, response caching by content hash, small semaphore, tenacity backoff, dev on subsets |
 | Free/community model doesn't honor strict structured outputs | `llm_json` wrapper: prompt-for-JSON + fence-stripping + pydantic validation + one repair retry; never trust raw text |
-| `:free` model IDs rotate/get deprecated | model names in `config.py`/env, not hardcoded; eval run flags regressions |
+| `:free` model IDs rotate/get deprecated | model names in `app/core/config.py`/env, not hardcoded; eval run flags regressions |
 | LLM extracts slightly different spellings across SI/BL → false mismatch | normalize in code; still compare in Python, never by LLM judgment |
 | False `missing_attachment` escalation on "send me the BL" emails | body-intent check is a rule, tested against `email_003`-style fixtures |
 | Vision OCR latency on image PDFs | only on unreadable path; small n in dataset |

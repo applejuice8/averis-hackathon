@@ -14,7 +14,9 @@ import pytest
 API_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API_DIR))
 
-from app.config import DATA_DIR  # noqa: E402
+from app.core.config import settings  # noqa: E402
+
+DATA_DIR = settings.resolved_data_dir
 from pipeline.compare import verdict as compare_verdict  # noqa: E402
 from pipeline.extract import extract_fields  # noqa: E402
 from pipeline.readers import load_email_record  # noqa: E402

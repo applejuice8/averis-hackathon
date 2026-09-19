@@ -156,7 +156,7 @@ Reply with ONLY JSON: {"shipper": ..., "consignee": ..., "notify_party": ...,
 def extract_fields_llm(text: str) -> dict | None:
     """LLM fill-in for fields the deterministic parse missed."""
     try:
-        from app.llm import llm_json
+        from app.services.llm import llm_json
 
         r = llm_json(
             [
