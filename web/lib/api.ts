@@ -1,6 +1,6 @@
 const API = process.env.API_URL || "http://localhost:8000";
-// browser-side calls (client components) — compose can't resolve `api:8000`
-export const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin browser requests are forwarded to the API by Next.js.
+export const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL || "";
 
 export type EmailListItem = {
   email_id: string;
