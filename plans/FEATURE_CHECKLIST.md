@@ -34,6 +34,8 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 - [x] `decided_by` marker (`rule` / `llm`) for cost diagnostics
 - [x] Attachment-name + coded-subject cues (e.g. `AFRT - LONG BEACH_US`,
   `*_SI.*` / `*_BL.*` names)
+- [x] Filename-independent doc pairing — SI/BL identified by detected
+  content type when names carry no signal `verdict._si_bl_by_content` · 🧪
 - [x] "Send me the BL" intent detected separately — treated as awaiting
   docs, **not** an escalation `COMPARE_INTENT_RE` vs `SEND_BL_INTENT_RE` · 🧪
 - [x] LLM classification fallback for the no-cue GENERAL bucket
@@ -71,8 +73,9 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   毛重 / Gross Wt (kgs) …) — normalized labels, not regex-on-raw · 🧪
 - [x] Two layouts: inline `Label: value` and PDF block layout
   (label line → next non-empty line)
-- [x] Blank-token detection (`???`, `_______`, `TBA`, `N/A`, `____MT`) →
-  `missing_value` candidates · 🧪 `email_516`
+- [x] Blank-token detection (`???`, `_______`, `TBA`, `TBD`,
+  `TO BE ADVISED`, `N/A`, `NIL`, punctuation-only values) →
+  `missing_value` candidates · 🧪 `email_516` + parametrized tokens
 - [x] Numeric parsing with comma grouping (`61,234.5` → 61234.5) · 🧪
 - [x] Container-size suffixes (`3 x 40'HC` → 3) · 🧪
 - [x] LLM extraction fallback — fires when deterministic parse finds zero
@@ -83,8 +86,9 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 
 ## 6. Comparison & verdict (deterministic)
 
-- [x] Party/port normalization: strip case + punctuation → exact match
-  `api/pipeline/compare.py` · 🧪
+- [x] Party normalization: strip case + punctuation → exact match · 🧪
+- [x] Port normalization: compare port name proper — `SHANGHAI, CHINA (CNSHA)`
+  ≡ `SHANGHAI`; real port differences still flag · 🧪 `api/pipeline/compare.py`
 - [x] Numeric equality on container_count / gross_weight_kg · 🧪
   (real differences flagged — 0.5 kg is a defect)
 - [x] Exact defect-field list output (no fuzzy "similar" verdicts) · 🧪
@@ -187,6 +191,9 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 - [x] 14 golden-fixture tests: classification, all 4 escalation reasons,
   exact defect fields, doc-type detection, synonym extraction,
   normalization `api/tests/test_pipeline.py` · 🧪 all green
+- [x] 14 anti-overfit tests: neutral/renamed/reordered attachments, extra
+  unrelated files, synonym-label swaps, port-format asymmetry, blank-token
+  variants, send-BL trap `api/tests/test_robustness.py` · 🧪 all green
 - [x] Tests need no DB or network (file fixtures only)
 - [ ] API-level tests (httpx + test DB)
 - [ ] Web lint/typecheck in CI (`pnpm build` covers tsc today) · 🟢 build green

@@ -28,8 +28,9 @@ INV_RE = re.compile(
     r"telex release|local charges|total freight|\bfreight\b|cancel)",
     re.I,
 )
-# 'billing' alone is too weak — RPA bots announce "Billing Process Completed"
+# 'billing' alone is too weak — automation bots announce "Billing Process Completed"
 INV_STRONG_RE = re.compile(r"(invoice|missing gr|d\s*&\s*d|detention|telex release|local charges|total freight)", re.I)
+BOT_SENDER_RE = re.compile(r"(bot|no-?reply|donotreply|auto)@")
 
 COMPARE_INTENT_RE = re.compile(
     rf"(?:compare|check|verify|confirm)[\s\S]{{0,80}}{SI_TERM}[\s\S]{{0,80}}{BL_TERM}|"
@@ -82,7 +83,7 @@ def classify(email) -> tuple[str, str, str]:
         return "SI_REQUEST", "rule", "SI request cues"
 
     # 4. invoice/billing
-    if INV_STRONG_RE.search(hay) or (INV_RE.search(subject) and domain != "rpa.bot@aprilasia.com"):
+    if INV_STRONG_RE.search(hay) or (INV_RE.search(subject) and not BOT_SENDER_RE.search(sender)):
         return "INVOICE_QUERY", "rule", "billing/invoice cues"
 
     # 5. "please send the draft BL" / doc-handling subjects -> still doc-check queue

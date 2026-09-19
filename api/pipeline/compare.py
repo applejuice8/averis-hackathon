@@ -9,7 +9,9 @@ def norm_party(s) -> str:
 
 
 def norm_port(s) -> str:
-    return norm_party(s)
+    # compare on the port name proper: "SHANGHAI, CHINA (CNSHA)" == "SHANGHAI"
+    name = (s or "").split(",")[0]
+    return norm_party(name)
 
 
 def norm_num(v) -> float | None:

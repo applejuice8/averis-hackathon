@@ -31,7 +31,10 @@ BLOCK_VALUE_FIELDS = {
     "port_of_loading", "port_of_discharge",
 }
 
-BLANK_TOKENS = {"???", "_______", "TBA", "TBC", "", "N/A", "____MT"}
+BLANK_TOKENS = {
+    "???", "_______", "TBA", "TBC", "TBD", "TO BE ADVISED", "TO BE CONFIRMED",
+    "N/A", "NA", "NONE", "NIL", "-", "--", "", "____MT",
+}
 NUMERIC_FIELDS = {"container_count", "gross_weight_kg"}
 
 
@@ -123,6 +126,10 @@ def extract_fields(text: str) -> dict:
     for f in COMPARE_FIELDS:
         v = raw.get(f)
         is_blank = v is None or v.strip().upper() in BLANK_TOKENS or (
+            # punctuation-only values ("—", "...", "---") carry no information;
+            # CJK ideographs count as content (bilingual labels like 毛重)
+            v is not None and not re.search(r"[0-9A-Za-z\u4e00-\u9fff]", v)
+        ) or (
             f in NUMERIC_FIELDS and _parse_number(v) is None
         )
         if is_blank:

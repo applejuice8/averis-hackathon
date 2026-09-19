@@ -30,6 +30,24 @@ def _si_bl_paths(email) -> tuple[str | None, str | None]:
     return si, bl
 
 
+def _si_bl_by_content(email, data_dir) -> tuple[str | None, str | None]:
+    """Filename-independent fallback: identify the SI/BL pair by detected
+    document type. Handles neutrally-named or extra attachments."""
+    si = bl = None
+    for a in email.get("attachments") or []:
+        doc = read_attachment(Path(data_dir) / a)
+        if not doc.readable:
+            continue
+        t = detect_doc_type(doc.text)
+        if t == "SI" and si is None:
+            si = a
+        elif t == "BL" and bl is None:
+            bl = a
+        if si and bl:
+            break
+    return si, bl
+
+
 def _base(email, category, decided_by, rationale):
     return {
         "email_id": email["email_id"],
@@ -108,6 +126,10 @@ def process_email(email: dict, data_dir: str) -> dict:
     body = email.get("body") or ""
     si_path, bl_path = _si_bl_paths(email)
     attachments = email.get("attachments") or []
+
+    # filenames are only a convention — fall back to content typing
+    if not (si_path and bl_path) and len(attachments) >= 2:
+        si_path, bl_path = _si_bl_by_content(email, data_dir)
 
     # --- escalation: missing attachment -------------------------------
     # Explicit compare request but the pair isn't there. A "please send the
