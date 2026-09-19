@@ -17,11 +17,22 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from ..core.config import settings
 
-client = OpenAI(
-    base_url=settings.openrouter_base_url,
-    api_key=settings.openrouter_api_key,
-    default_headers={"X-Title": "SDOC Verifier"},
-)
+_client: OpenAI | None = None
+
+
+def get_client() -> OpenAI:
+    """Built on first use, not on import: the deterministic pipeline runs
+    without a key at all, and the SDK refuses to construct without one."""
+    global _client
+    if _client is None:
+        if not settings.openrouter_api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not set - AI assists are unavailable")
+        _client = OpenAI(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+            default_headers={"X-Title": "SDOC Verifier"},
+        )
+    return _client
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
@@ -85,7 +96,7 @@ def cache_write(key: str, model: str, value) -> None:
     reraise=True,
 )
 def _complete(messages, model, max_tokens):
-    return client.chat.completions.create(
+    return get_client().chat.completions.create(
         model=model, messages=messages, temperature=0, max_tokens=max_tokens
     )
 
@@ -93,6 +104,7 @@ def _complete(messages, model, max_tokens):
 def _chat(messages, models: list[str], max_tokens: int):
     """-> (response, model that answered). Walks the chain; raises the last
     error only once every model in it has failed its own retries."""
+    get_client()  # fail fast on a missing key rather than retrying nothing
     last = None
     for model in models:
         try:

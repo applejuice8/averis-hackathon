@@ -23,6 +23,13 @@ def reply(content: str):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
+@pytest.fixture(autouse=True)
+def configured_key(monkeypatch):
+    """Every test here stubs the completion call, but the chain still checks
+    that a key exists before it starts."""
+    monkeypatch.setattr(settings, "openrouter_api_key", "test-key")
+
+
 @pytest.fixture
 def cache(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "llm_cache_dir", str(tmp_path))
@@ -115,3 +122,17 @@ def test_unparseable_reply_is_repaired_on_the_same_model(cache, monkeypatch):
     monkeypatch.setattr(llm, "_complete", fake)
     assert llm.llm_json([{"role": "user", "content": "x"}], model="m") == {"consignee": "B"}
     assert seen == ["m", "m"]
+
+
+def test_a_missing_key_degrades_instead_of_crashing_on_import(monkeypatch):
+    """The deterministic pipeline runs with no OpenRouter key at all, so the
+    client must not be built until something actually calls a model."""
+    monkeypatch.setattr(llm, "_client", None)
+    monkeypatch.setattr(settings, "openrouter_api_key", "")
+
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        llm.get_client()
+
+    from pipeline.extract import extract_fields_llm
+
+    assert extract_fields_llm("SHIPPING INSTRUCTION") is None
