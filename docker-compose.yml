@@ -16,9 +16,18 @@ services:
       - "8000:8000"
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      target: dev
     environment:
       API_URL: http://api:8000            # server-side fetch (compose DNS)
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
     ports:
       - "3000:3000"
     depends_on:
