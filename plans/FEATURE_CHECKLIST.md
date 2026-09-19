@@ -14,16 +14,16 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 - [x] Inbox ingest: 520 email JSONs → Neon `emails` table
   `api/pipeline/ingest.py` · 🟢 (`POST` ingest verified, 520 rows)
 - [x] Attachment metadata stored per email (`attachments` JSONB)
-  `api/app/models.py`
+  `api/app/db/models.py`
 - [x] Neon Postgres (async SQLAlchemy + asyncpg, sslmode handled)
-  `api/app/db.py` · 🟢 `NEON OK: 1`
+  `api/app/db/session.py` · 🟢 `NEON OK: 1`
 - [x] Runs recorded with per-run stats + scorer response
   `runs` table, `api/pipeline/submission.py:45-49` · 🟢
 - [x] Pipeline results persisted per email per run (category, status,
   extracted fields, evidence, defect fields, decided_by)
   `pipeline_results` table · 🟢
 - [x] Human review actions persisted (`reviews` table + result mutation)
-  `api/app/routers/review.py` · 🟢 POST verified
+  `api/app/services/review.py` · 🟢 POST verified
 - [ ] Alembic migrations (currently `create_all` on startup)
 - [ ] Multi-run comparison view (diff between two runs)
 
@@ -40,7 +40,9 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   docs, **not** an escalation `COMPARE_INTENT_RE` vs `SEND_BL_INTENT_RE` · 🧪
 - [x] LLM classification fallback for the no-cue GENERAL bucket
   `classify_llm()` behind `ENABLE_LLM_CLASSIFY` · 🟢 (live-verified verdicts)
-- [ ] LLM response cache keyed by content hash (`llm_cache`)
+- [x] LLM response cache keyed by content hash — parsed replies stored
+  under `.cache/llm`, so a rerun over the same document costs nothing
+  `llm.cache_read/cache_write`, `ENABLE_LLM_CACHE` · 🧪
 - [ ] Bounded-concurrency LLM batch (semaphore) — runs are sequential today
 
 ## 3. Document reading
@@ -115,11 +117,14 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   end-to-end 46/46, escalation precision/recall 1.0 · 🟢
 - [x] `GET /api/export/submission?run_id=` (download JSON) · 🟢
 - [x] `POST /api/export/submit?run_id=` · 🟢
-- [ ] CI regression: run pipeline + submit on every push
+- [x] CI on every push — fixtures + web build `.github/workflows/ci.yml`
+- [ ] CI regression against the scorer (needs a hosted scorer + ground truth)
 
 ## 9. REST API
 
-- [x] `GET /health` · 🟢
+- [x] `GET /health` — Neon round-trip, model chain, assist switches and
+  data dir; 503 when the database is unreachable, and never calls a model
+  `api/app/main.py` · 🧪 🟢 (`emails_ingested: 520` live)
 - [x] `GET /api/emails` — list joined to latest result; filters
   `queue` / `status` / `q` · 🟢
 - [x] `GET /api/emails/{id}` — detail + latest result (incl. `result_id`) · 🟢
@@ -149,16 +154,21 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   `LlmAssist.tsx` · 🟢
 - [x] Runs/scoreboard `/runs` — history with stats + score JSON · 🟢
 - [x] Server-side fetches via compose DNS (`API_URL=http://api:8000`);
-  browser calls via `NEXT_PUBLIC_API_URL` · 🟢
-- [ ] Field-level defect override UI (checkboxes per field — API supports
-  `override_fields`, UI only does status-level today)
-- [ ] Dark mode / polish pass, loading skeletons
-- [ ] Attachment preview / raw document viewer
+  browser calls go same-origin and are rewritten to the API by Next, so the
+  UI works behind any host `web/next.config.ts` · 🟢
+- [x] Field-level defect override UI — per-field checkboxes posting
+  `override_fields` `ReviewActions.tsx` · 🟢
+- [x] Attachment preview — extracted document text beside the diff
+  `Attachments.tsx` + `GET /api/emails/{id}/attachments/{i}` · 🧪 🟢
+- [x] Live run progress — per-email updates while a run executes, with the
+  page refreshing until it finishes `RunControls.tsx` · 🟢
+- [x] Loading and error states on every route `loading.tsx` / `error.tsx`
+- [ ] Dark mode
 
 ## 11. LLM integration (OpenRouter via OpenAI SDK)
 
 - [x] OpenAI SDK client pointed at `openrouter.ai/api/v1`
-  `api/app/llm.py` · 🟢
+  `api/app/services/llm.py` · 🟢
 - [x] Text model `nvidia/nemotron-3-ultra-550b-a55b:free` — classification +
   extraction verified live (correct queue + all 7 fields incl. the real
   consignee mismatch) · 🟢
@@ -166,7 +176,12 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   rendered-BL OCR verified live · 🟢
   (original pick `nemotron-nano-12b-v2-vl:free` 404s on OpenRouter — swapped)
 - [x] `llm_json` hardening — fence-strip, `{...}` slice, parse, one repair
-  retry, tenacity backoff · 🟢
+  retry on the same model, tenacity backoff · 🟢 🧪
+- [x] Model fallback chain — primary then `*_MODEL_FALLBACKS`, a dead or
+  rate-limited slug is skipped rather than fatal (we lost
+  `nemotron-nano-12b-v2-vl:free` mid-build) · 🧪
+- [x] Client built on first use — the deterministic pipeline runs with no
+  `OPENROUTER_API_KEY` at all · 🧪
 - [x] `vision_json` — base64 PNG image_url input · 🟢
 - [x] Fail-safe design — every LLM path degrades to deterministic behavior,
   never to a wrong verdict
@@ -184,20 +199,28 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 - [ ] Cloud deploy (web → Vercel, api → Railway/Render, Neon already cloud)
 - [ ] Kubernetes manifests (Deployments + Ingress) — stretch item
 - [ ] Health checks in compose (`depends_on: condition: healthy`)
-- [ ] `.env.example` committed for judges
+- [x] `.env.example` committed — every knob documented, secrets blank
 
 ## 13. Testing & quality
+
+**64 tests, all green, none of them touching a database or the network.**
 
 - [x] 14 golden-fixture tests: classification, all 4 escalation reasons,
   exact defect fields, doc-type detection, synonym extraction,
   normalization `api/tests/test_pipeline.py` · 🧪 all green
-- [x] 14 anti-overfit tests: neutral/renamed/reordered attachments, extra
+- [x] 15 anti-overfit tests: neutral/renamed/reordered attachments, extra
   unrelated files, synonym-label swaps, port-format asymmetry, blank-token
-  variants, send-BL trap `api/tests/test_robustness.py` · 🧪 all green
-- [x] Tests need no DB or network (file fixtures only)
-- [ ] API-level tests (httpx + test DB)
-- [ ] Web lint/typecheck in CI (`pnpm build` covers tsc today) · 🟢 build green
-- [ ] Pre-commit / lint config (ruff)
+  variants, send-BL trap, assists staying off when the flags are off
+  `api/tests/test_robustness.py` · 🧪 all green
+- [x] 9 LLM-client tests — fallback chain, cache hit/miss, corrupt cache
+  entry, repair retry, missing key `api/tests/test_llm.py` · 🧪
+- [x] 4 health-endpoint tests via `TestClient`, no database needed · 🧪
+- [x] 5 attachment-preview + 15 review-action tests · 🧪
+- [x] Tests need no DB or network (file fixtures only) — CI runs them with
+  `NEON_DB_URI` and `OPENROUTER_API_KEY` unset to keep it that way
+- [x] Web typecheck + build in CI (`tsc --noEmit`, `pnpm build`) · 🟢
+- [x] Lint config — ruff pinned in `pyproject.toml`, clean across `api/`
+- [ ] API-level tests against a throwaway database
 
 ## 14. Docs & submission
 
@@ -205,7 +228,7 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 - [x] `plans/TECHNICAL_PLAN.md` — stack, schema, stages, scoring
 - [x] `README.md` — architecture/pipeline/decision-tree/data-model
   diagrams, run instructions, no organizer names
-- [x] This checklist
+- [x] This checklist — kept in step with the code, not written once
 - [ ] Demo video (≤ 5 min, live deployed prototype)
 - [ ] Demo script / talking points for judging
 
