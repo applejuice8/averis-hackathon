@@ -11,3 +11,7 @@ wheels/
 .env
 
 .DS_STORE
+
+# Data bundle (symlink/mount)
+data/
+submission*.json
