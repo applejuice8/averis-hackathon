@@ -1,69 +1,13 @@
 import Link from "next/link";
 import { api } from "@/lib/api";
-
+import { QUEUES, STATUS, REASONS, FIELDS } from "@/lib/labels";
+import StatusBadge from "../components/StatusBadge";
 export const dynamic = "force-dynamic";
-
-function badge(status: string | null, hasDefect: boolean | null) {
-  if (!status) return <span className="badge dim">unprocessed</span>;
-  if (status === "MISMATCH") return <span className="badge bad">MISMATCH</span>;
-  if (status === "NEEDS_REVIEW") return <span className="badge warn">NEEDS REVIEW</span>;
-  if (status === "FAILED") return <span className="badge bad">FAILED</span>;
-  return <span className="badge ok">OK</span>;
-}
-
-export default async function Inbox({
-  searchParams,
-}: {
-  searchParams: Promise<{ queue?: string; status?: string }>;
-}) {
-  const { queue, status } = await searchParams;
-  const emails = await api.emails();
-  const filtered = emails.filter(
-    (e) => (!queue || e.category === queue) && (!status || e.status === status)
-  );
-
-  return (
-    <>
-      <h1>Inbox</h1>
-      <div className="filters">
-        <form id="f">
-          <select name="queue" defaultValue={queue ?? ""}>
-            <option value="">all queues</option>
-            {["BL_COMPARISON", "SI_REQUEST", "INVOICE_QUERY", "GENERAL", "SPAM"].map((q) => (
-              <option key={q} value={q}>{q}</option>
-            ))}
-          </select>{" "}
-          <select name="status" defaultValue={status ?? ""}>
-            <option value="">all verdicts</option>
-            {["OK", "MISMATCH", "NEEDS_REVIEW", "FAILED"].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>{" "}
-          <button type="submit">Filter</button>
-        </form>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Email</th><th>From</th><th>Subject</th><th>Queue</th><th>Verdict</th><th>How</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((e) => (
-            <tr key={e.email_id}>
-              <td><Link href={`/emails/${e.email_id}`}>{e.email_id}</Link></td>
-              <td>{e.sender}</td>
-              <td style={{ maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.subject}</td>
-              <td>{e.category && <span className="badge info">{e.category}</span>}</td>
-              <td>{badge(e.status, e.has_defect)}
-                {e.defect_fields?.length ? <span style={{ color: "var(--bad)" }}> {e.defect_fields.join(", ")}</span> : null}
-                {e.review_reason ? <span style={{ color: "var(--warn)" }}> {e.review_reason}</span> : null}
-              </td>
-              <td>{e.decided_by && <span className="badge dim">{e.decided_by}</span>}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  );
+export default async function Inbox({ searchParams }: { searchParams: Promise<{ queue?: string; status?: string; q?: string }> }) {
+  const { queue, status, q } = await searchParams;
+  const emails = await api.emails(q);
+  const filtered = emails.filter(e => (!queue || e.category === queue) && (!status || e.status === status));
+  return <><div className="page-heading"><div><div className="eyebrow">Correspondence</div><h1>Your shipping inbox</h1><p>Find the message. Inspect the evidence. Make the next call.</p></div><span className="badge dim">{filtered.length} messages</span></div>
+    <form className="filters"><input aria-label="Search messages" name="q" defaultValue={q} placeholder="Search subject, sender, or email ID…"/><select aria-label="Queue" name="queue" defaultValue={queue ?? ""}><option value="">All queues</option>{Object.entries(QUEUES).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Verdict" name="status" defaultValue={status ?? ""}><option value="">All verdicts</option>{Object.entries(STATUS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select><button type="submit">Apply filters</button>{(q || queue || status) && <Link className="text-link" href="/inbox">Reset</Link>}</form>
+    <div className="table-wrap"><table><thead><tr><th>Message</th><th>Queue</th><th>Finding</th><th>Source</th></tr></thead><tbody>{filtered.map(e => <tr key={e.email_id}><td className="subject"><Link href={`/emails/${e.email_id}`}>{e.subject || "Untitled message"}</Link><small>{e.sender}</small><small className="mono">{e.email_id} · {e.n_attachments} attachments</small></td><td>{e.category ? QUEUES[e.category] ?? e.category : "—"}</td><td><StatusBadge status={e.status}/><small>{e.review_reason ? REASONS[e.review_reason] ?? e.review_reason : e.defect_fields?.map(f => FIELDS[f] ?? f).join(", ")}</small></td><td><span className="badge dim">{e.decided_by === "llm" ? "Model" : e.decided_by === "rule" ? "Rules" : "—"}</span></td></tr>)}</tbody></table>{!filtered.length && <div className="empty"><strong>No messages found</strong>Try another search or clear the filters.</div>}</div></>;
 }

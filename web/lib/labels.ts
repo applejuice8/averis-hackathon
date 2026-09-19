@@ -1,0 +1,4 @@
+export const QUEUES: Record<string, string> = { BL_COMPARISON: "Document checks", SI_REQUEST: "Shipping instructions", INVOICE_QUERY: "Invoice queries", GENERAL: "General updates", SPAM: "Spam" };
+export const FIELDS: Record<string, string> = { shipper: "Shipper", consignee: "Consignee", notify_party: "Notify party", port_of_loading: "Port of loading", port_of_discharge: "Port of discharge", container_count: "Container count", gross_weight_kg: "Gross weight (kg)" };
+export const REASONS: Record<string, string> = { wrong_doc_type: "Wrong document attached", missing_attachment: "Missing SI or BL", unreadable: "Document could not be read", missing_value: "Required details missing", manual_flag: "Flagged by a reviewer" };
+export const STATUS: Record<string, string> = { OK: "Clear", MISMATCH: "Mismatch", NEEDS_REVIEW: "Needs review", FAILED: "Failed" };
