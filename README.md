@@ -15,31 +15,31 @@ untrustworthy documents to human review.
                             docker compose network
  ┌───────────────────────────────────────────────────────────────────────┐
  │                                                                       │
- │   browser                                                             │
- │     │  http://localhost:3000                                          │
- │     ▼                                                                 │
- │  ┌─────────────┐   server-side fetch (compose DNS)                    │
- │  │     web     │ ──────────────────────────────┐                      │
- │  │  Next.js 15 │                               ▼                      │
- │  │  pnpm       │                        ┌─────────────┐               │
- │  └──────┬──────┘                        │     api     │               │
- │         │ browser calls                │  FastAPI    │               │
- │         │ NEXT_PUBLIC_API_URL          │  uv / py3.13│               │
- │         └─────────────────────────────►│  :8000      │               │
- │              http://localhost:8000     └──────┬──────┘               │
- │                                             │    │                   │
- └─────────────────────────────────────────────┼────┼───────────────────┘
-                                               │    │
-              ┌────────────────────────────────┘    └───────────────┐
-              ▼                                                     ▼
-     ┌─────────────────┐   TLS    ┌──────────────┐   HTTPS   ┌──────────────┐
-     │     scorer      │          │  Neon        │           │  OpenRouter  │
-     │ provided eval   │          │  Postgres    │           │  nemotron    │
-     │ server :8000    │          │  (managed)   │           │  models      │
-     │ (dev only)      │          └──────────────┘           └──────────────┘
-     └─────────────────┘
-      api reaches it as
-      http://scorer:8000
+ │  browser                                                              │
+ │    │  http://localhost:3000                                           │
+ │    ▼                                                                  │
+ │ ┌─────────────┐   server-side fetch (compose DNS)                     │
+ │ │     web     │ ────────────────────────────┐                         │
+ │ │  Next.js 15 │                             ▼                         │
+ │ │  pnpm       │   /api/* rewritten   ┌─────────────┐                  │
+ │ └──────┬──────┘   to API_URL         │     api     │                  │
+ │        │                             │  FastAPI    │                  │
+ │        └────────────────────────────►│  uv / py3.13│                  │
+ │             same origin, any host    │  :8000      │                  │
+ │                                      └──────┬──────┘                  │
+ │                                             │                         │
+ └─────────────────────────────────────────────┼─────────────────────────┘
+                                               │
+            ┌───────────────────────────┬──────┴───────────────────┐
+            ▼                           ▼                          ▼
+    ┌─────────────────┐   TLS    ┌──────────────┐   HTTPS   ┌──────────────┐
+    │     scorer      │          │  Neon        │           │  OpenRouter  │
+    │ provided eval   │          │  Postgres    │           │  nemotron    │
+    │ server :8000    │          │  (managed)   │           │  models      │
+    │ (dev only)      │          └──────────────┘           └──────────────┘
+    └─────────────────┘
+     api reaches it as
+     http://scorer:8000
 ```
 
 | Service | Image base | Port | Purpose |
@@ -49,6 +49,15 @@ untrustworthy documents to human review.
 | `scorer` | python:3.12-slim (provided) | 8080→8000 | Evaluation against private ground truth |
 | Neon | managed | — | `emails`, `runs`, `pipeline_results`, `reviews` |
 | OpenRouter | managed | — | text model + vision model |
+
+The browser only ever talks to its own origin: Next rewrites `/api/*` to
+`API_URL`, so the UI works unchanged on localhost, in compose, or behind a
+deployed hostname.
+
+`GET /health` reports what the service can actually reach — the Neon
+round-trip, the configured model chain, which assists are switched on, and
+whether the data directory is mounted. It answers 503 when the database is
+down, and never calls a model.
 
 The compose `api` service mounts `docs-provided/.../sdoc-hackathon-bundle`
 read-only at `/data` (inbox JSON + attachments) and reads secrets from
@@ -231,11 +240,25 @@ runs stay deterministic and quota-safe.
 | `ENABLE_LLM_CLASSIFY` | rules return no-cue GENERAL | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | `ENABLE_LLM_FILL` | some fields blank after parse | same |
 | `ENABLE_VISION_OCR` | PDF has no text layer | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` |
-| *(always on)* | parse found **zero** fields → unknown layout | text model rescues |
+| `ENABLE_LLM_FILL` | parse found **zero** fields → unknown layout | text model rescues |
 
 `llm_json` hardening: prompt-for-JSON → strip code fences → slice the
 `{...}` block → pydantic-style validation → one repair retry → tenacity
 backoff. Raw model output never decides a verdict.
+
+Two more things the free tier forced on us:
+
+- **Fallback chain** — `TEXT_MODEL` then `TEXT_MODEL_FALLBACKS`, in order.
+  A retired slug or a rate-limited model is skipped, and a call only fails
+  once the whole chain has. We lost `nemotron-nano-12b-v2-vl:free` to a 404
+  mid-build; the chain is why that stops being an incident.
+- **Content-hash cache** — every parsed reply is stored under `.cache/llm`
+  keyed by the hash of its request, so rerunning the same document is free.
+  `ENABLE_LLM_CACHE=false` turns it off.
+
+The client is built on first use, so the deterministic pipeline runs with no
+`OPENROUTER_API_KEY` at all — pull the key mid-demo and verdicts keep
+coming, which is the point of "LLMs read, code decides".
 
 **Demo without flags:** `GET /api/pipeline/llm-assist/{email_id}` runs the
 models live on one email (classification + extraction + OCR) and returns
@@ -258,15 +281,18 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 │   │   ├── api/                deps + router + routes/ (thin HTTP layer)
 │   │   ├── schemas/            pydantic request/response DTOs
 │   │   ├── repositories/       all SQL — routes contain none
-│   │   └── services/           llm.py (OpenRouter) + review.py (mutations)
+│   │   └── services/           llm.py (chain + cache), review.py, attachments.py
 │   ├── pipeline/               ingest → classify → readers → extract
 │   │   └── readers/            → escalate → compare → submit
 │   │       └── ocr.py          vision-model path (pypdfium2 render)
-│   └── tests/                  28 fixtures — golden + anti-overfit, no DB/network
+│   └── tests/                  64 tests — golden, anti-overfit, LLM client,
+│                               health, review; no DB, no network
 ├── web/
 │   ├── Dockerfile              pnpm install --frozen-lockfile + build
+│   ├── next.config.ts          /api/* → API_URL rewrite
 │   ├── app/                    / inbox emails/[id] review runs
-│   └── lib/api.ts              typed fetch layer
+│   └── lib/                    api.ts typed fetch + labels.ts UI copy
+├── .github/workflows/ci.yml    pytest + ruff + tsc + next build
 └── plans/                      requirements + technical plan docs
 ```
 
@@ -275,12 +301,13 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 ## 9. Run it
 
 ```bash
-# .env needs NEON_DB_URI + OPENROUTER_API_KEY
+cp .env.example .env     # fill in NEON_DB_URI; the key is optional
 docker compose up --build
 ```
 
 - web → http://localhost:3000 · api → http://localhost:8000 (`/docs`) ·
-  scorer → http://localhost:8080
+  scorer → http://localhost:8080 · `curl localhost:8000/health` to see what
+  the API can reach
 
 ```bash
 # first-time data load, then a full pipeline run + score
@@ -294,4 +321,7 @@ docker compose exec api uv run python -c \
 Local dev without Docker: `uv sync` · `cd web && pnpm install` ·
 `uv run uvicorn app.main:app --app-dir api --reload` · `cd web && pnpm dev`.
 
-Tests: `uv run pytest api/tests -v`.
+Tests: `uv run pytest api/tests -v` · lint: `uv run ruff check api`.
+Both run on every push, together with `tsc --noEmit` and `next build`,
+and the API job runs with no database and no API key so we keep noticing
+if something starts needing them.
