@@ -6,7 +6,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import PipelineResult
-from .emails import latest_run_id_subquery
+from .emails import latest_result_ids
 
 
 async def latest_for_email(
@@ -16,7 +16,7 @@ async def latest_for_email(
         await s.execute(
             select(PipelineResult)
             .where(PipelineResult.email_id == email_id)
-            .order_by(desc(PipelineResult.created_at))
+            .order_by(desc(PipelineResult.created_at), desc(PipelineResult.id))
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -62,11 +62,11 @@ async def for_run(
 
 
 async def review_queue(s: AsyncSession) -> Sequence[PipelineResult]:
-    """NEEDS_REVIEW + FAILED results from the latest run."""
+    """NEEDS_REVIEW + FAILED from the latest result per email."""
     return (
         await s.execute(
             select(PipelineResult)
-            .where(PipelineResult.run_id == latest_run_id_subquery())
+            .where(PipelineResult.id.in_(latest_result_ids()))
             .where(PipelineResult.status.in_(["NEEDS_REVIEW", "FAILED"]))
             .order_by(PipelineResult.email_id)
         )

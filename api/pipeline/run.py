@@ -17,9 +17,11 @@ from app.repositories import runs as runs_repo  # noqa: E402
 from .verdict import process_email  # noqa: E402
 
 
-async def run_pipeline(email_ids: list[str] | None = None, label: str | None = None) -> str:
+async def run_pipeline(email_ids: list[str] | None = None, label: str | None = None,
+                       run_id: str | None = None) -> str:
     async with SessionLocal() as s:
-        run = await runs_repo.create(s, label or "manual")
+        run = await runs_repo.get(s, run_id) if run_id else await runs_repo.create(s, label or "manual")
+        await s.commit()
         emails = await emails_repo.list_all(s, email_ids)
 
         for email in emails:
@@ -31,7 +33,7 @@ async def run_pipeline(email_ids: list[str] | None = None, label: str | None = N
                 "attachments": email.attachments,
             }
             try:
-                r = process_email(rec, settings.resolved_data_dir)
+                r = await asyncio.to_thread(process_email, rec, settings.resolved_data_dir)
             except Exception as e:
                 r = {
                     "email_id": email.email_id, "category": "GENERAL",
@@ -41,6 +43,9 @@ async def run_pipeline(email_ids: list[str] | None = None, label: str | None = N
                     "evidence": None, "error": f"{type(e).__name__}: {e}",
                 }
             await results_repo.add(s, run.id, r)
+            await s.flush()
+            run.stats = await results_repo.stats_by_category_status(s, run.id)
+            await s.commit()
 
         stats = await results_repo.stats_by_category_status(s, run.id)
         await runs_repo.finish(s, run, stats)

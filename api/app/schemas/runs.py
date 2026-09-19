@@ -32,6 +32,7 @@ class RunDetail(RunView):
 
 
 class RunStarted(BaseModel):
+    run_id: str
     started: bool
     email_ids: list[str] | str
 

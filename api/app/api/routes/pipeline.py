@@ -26,9 +26,12 @@ async def start_run(
     background: BackgroundTasks,
     email_ids: list[str] | None = None,
     label: str | None = None,
+    s: AsyncSession = Depends(get_db),
 ):
-    background.add_task(run_pipeline, email_ids=email_ids, label=label)
-    return RunStarted(started=True, email_ids=email_ids or "all")
+    run = await runs_repo.create(s, label or "manual")
+    await s.commit()
+    background.add_task(run_pipeline, email_ids=email_ids, label=label, run_id=str(run.id))
+    return RunStarted(run_id=str(run.id), started=True, email_ids=email_ids or "all")
 
 
 @router.get("/runs", response_model=list[RunView])
@@ -37,11 +40,11 @@ async def list_runs(s: AsyncSession = Depends(get_db)):
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)
-async def get_run(run_id: str, s: AsyncSession = Depends(get_db)):
+async def get_run(run_id: uuid.UUID, s: AsyncSession = Depends(get_db)):
     run = await runs_repo.get(s, run_id)
     if run is None:
         raise HTTPException(404, "no such run")
-    n = await results_repo.count_for_run(s, uuid.UUID(run_id))
+    n = await results_repo.count_for_run(s, run_id)
     detail = RunDetail(**RunView.from_orm_row(run).model_dump(), results=n)
     return detail
 
@@ -77,4 +80,6 @@ async def llm_assist_email(email_id: str, s: AsyncSession = Depends(get_db)):
         "body": email.body,
         "attachments": email.attachments,
     }
-    return llm_assist(rec, settings.resolved_data_dir)
+    from starlette.concurrency import run_in_threadpool
+
+    return await run_in_threadpool(llm_assist, rec, settings.resolved_data_dir)
