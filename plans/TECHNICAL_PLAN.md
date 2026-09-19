@@ -2,7 +2,7 @@
 
 Companion to `REQUIREMENTS_PLAN.md` (business requirements). This document covers **how** we build it.
 
-**Stack (fixed):** Next.js (frontend) · FastAPI (backend + pipeline) · Neon serverless Postgres (state) · OpenAI SDK → **OpenRouter** (all LLM inference) · **uv** (Python deps) · **Docker + docker-compose** (runtime; Kubernetes later)
+**Stack (fixed):** Next.js (frontend) · FastAPI (backend + pipeline) · Neon serverless Postgres (state) · OpenAI SDK → **OpenRouter** (all LLM inference) · **uv** (Python deps) · **pnpm** (JS deps) · **Docker + docker-compose** (runtime; Kubernetes later)
 
 ---
 
@@ -53,8 +53,8 @@ needed for prelim.
 ## 2. Repository Layout
 
 uv project already exists at repo root (`pyproject.toml`, `.python-version` = 3.13,
-`uv.lock`). Python code lives under `api/`; the web app under `web/` keeps its own
-`package.json`.
+`uv.lock`). Python code lives under `api/`; the web app under `web/` is a **pnpm**
+project (`package.json` + `pnpm-lock.yaml`).
 
 ```
 averis-hackathon/
@@ -401,8 +401,9 @@ metric are good slide-deck talking points on cost engineering.
 - **Eval harness:** `uv run pytest tests/test_eval.py` → run pipeline on all 520 →
   POST /submit → assert `final_score` doesn't regress; store per-run scoreboard for the
   `/runs` page.
-- **CI:** GitHub Actions — `uv sync --frozen`, `ruff check`, `mypy`, `pytest`; web: `tsc` +
-  `next build`; `docker compose build` as the packaging check.
+- **CI:** GitHub Actions — `uv sync --frozen`, `ruff check`, `mypy`, `pytest`; web:
+  `pnpm install --frozen-lockfile` + `pnpm build`; `docker compose build` as the
+  packaging check.
 
 ---
 
@@ -418,7 +419,7 @@ services:
     volumes: [./data:/data:ro]
     ports: ["8000:8000"]
   web:
-    build: ./web                 # node:22-alpine → next build → next start
+    build: ./web                 # node:22-alpine + corepack pnpm → install → build → start
     environment: { NEXT_PUBLIC_API_URL: http://localhost:8000, API_URL: http://api:8000 }
     ports: ["3000:3000"]
     depends_on: [api]
