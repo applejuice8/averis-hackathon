@@ -65,17 +65,37 @@ def _clean_value(field: str, value: str) -> str:
 
 
 def detect_doc_type(text: str) -> str:
+    # the document title is the first non-empty line on txt/pdf/docx renders
+    for line in text.splitlines():
+        if line.strip():
+            first = line.strip().upper()
+            break
+    else:
+        return "unknown"
+    if first.startswith("COMMERCIAL INVOICE"):
+        return "invoice"
+    if first.startswith("PACKING LIST"):
+        return "packing_list"
+    if first.startswith("CERTIFICATE OF ORIGIN"):
+        return "coo"
+    if first.startswith(("BILL OF LADING INSTRUCTION", "BL INSTRUCTION", "SHIPPING INSTRUCTION")):
+        return "SI"
+    if first.startswith("BILL OF LADING"):
+        return "BL"
+    # fallback: explicit self-labelling markers anywhere (e.g. "*** THIS IS A
+    # COMMERCIAL INVOICE - NOT A SHIPPING INSTRUCTION ***")
+    up = text.upper()
+    if "NOT A SHIPPING INSTRUCTION" in up or "COMMERCIAL INVOICE" in up:
+        return "invoice"
+    if "PACKING LIST" in up:
+        return "packing_list"
+    if "CERTIFICATE OF ORIGIN" in up or "NOT AN SI OR BL" in up:
+        return "coo"
     head = text[:600].upper()
     if "SHIPPING INSTRUCTION" in head or "BILL OF LADING INSTRUCTION" in head or "BL INSTRUCTION" in head:
         return "SI"
     if "BILL OF LADING" in head:
         return "BL"
-    if "COMMERCIAL INVOICE" in head:
-        return "invoice"
-    if "PACKING LIST" in head:
-        return "packing_list"
-    if "CERTIFICATE OF ORIGIN" in head:
-        return "coo"
     return "unknown"
 
 
