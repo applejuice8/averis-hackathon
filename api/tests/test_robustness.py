@@ -153,3 +153,16 @@ def test_send_bl_request_is_not_escalation():
     }
     r = process_email(e, DATA_DIR)
     assert r["status"] == "OK" and r["review_reason"] is None
+
+
+def test_unknown_layout_does_not_call_model_when_disabled(monkeypatch):
+    from app.core.config import settings
+    from pipeline import verdict
+    from pipeline.readers import DocText
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(settings, "enable_llm_fill", False)
+    llm = Mock(side_effect=AssertionError("Unexpected paid model call"))
+    monkeypatch.setattr(verdict, "extract_fields_llm", llm)
+    verdict._extract_doc(DocText(text="SHIPPING INSTRUCTION\nUnknown layout"), "test.txt")
+    llm.assert_not_called()
