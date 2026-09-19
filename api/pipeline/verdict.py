@@ -4,7 +4,6 @@ Returns a dict shaped for pipeline_results columns.
 LLM assists are opt-in (config flags) so scoring runs stay deterministic;
 the on-demand llm_assist endpoint exercises them for demos.
 """
-import re
 from pathlib import Path
 
 from .classify import COMPARE_INTENT_RE, SEND_BL_INTENT_RE, classify, classify_llm

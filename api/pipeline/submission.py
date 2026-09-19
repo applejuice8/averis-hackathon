@@ -46,5 +46,6 @@ if __name__ == "__main__":
         print(json.dumps(asyncio.run(submit(rid)), indent=2))
     else:
         out = asyncio.run(build_submission(rid))
-        json.dump(out, open("submission.json", "w"), indent=2)
+        with open("submission.json", "w") as f:
+            json.dump(out, f, indent=2)
         print(f"wrote submission.json ({len(out)} entries)")

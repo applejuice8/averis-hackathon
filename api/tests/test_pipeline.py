@@ -14,7 +14,7 @@ from app.core.config import settings  # noqa: E402
 
 DATA_DIR = settings.resolved_data_dir
 from pipeline.compare import verdict as compare_verdict  # noqa: E402
-from pipeline.extract import detect_doc_type, extract_fields  # noqa: E402
+from pipeline.extract import extract_fields  # noqa: E402
 from pipeline.readers import load_email_record  # noqa: E402
 from pipeline.verdict import process_email  # noqa: E402
 
