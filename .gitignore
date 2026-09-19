@@ -13,5 +13,5 @@ wheels/
 .DS_STORE
 
 # Data bundle (symlink/mount)
-data/
+data
 submission*.json
