@@ -79,6 +79,7 @@ async def get_email(email_id: str, s: AsyncSession = Depends(get_session)):
         "attachments": email.attachments or [],
         "result": (
             {
+                "result_id": str(res.id),
                 "category": res.category,
                 "decided_by": res.decided_by,
                 "status": res.status,

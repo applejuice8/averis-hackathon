@@ -1,4 +1,6 @@
 import { api, COMPARE_FIELDS } from "@/lib/api";
+import LlmAssist from "./LlmAssist";
+import ReviewActions from "./ReviewActions";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +32,8 @@ export default async function EmailPage({ params }: { params: Promise<{ id: stri
           <div style={{ color: r?.status === "MISMATCH" ? "var(--bad)" : r?.status === "NEEDS_REVIEW" ? "var(--warn)" : "var(--ok)" }}>{verdict}</div>
         </div>
       </div>
+
+      {r && <ReviewActions resultId={r.result_id} status={r.status} />}
 
       {r?.si_fields && r?.bl_fields && (
         <>
@@ -66,6 +70,8 @@ export default async function EmailPage({ params }: { params: Promise<{ id: stri
         </>
       )}
       {r?.error && (<><h2>Error</h2><pre>{r.error}</pre></>)}
+
+      <LlmAssist emailId={e.email_id} />
 
       <h2>Original email</h2>
       <pre>{e.body}</pre>

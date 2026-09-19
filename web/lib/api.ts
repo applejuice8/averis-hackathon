@@ -1,4 +1,6 @@
 const API = process.env.API_URL || "http://localhost:8000";
+// browser-side calls (client components) — compose can't resolve `api:8000`
+export const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export type EmailListItem = {
   email_id: string;
@@ -20,6 +22,7 @@ export type EmailDetail = {
   body: string;
   attachments: string[];
   result: {
+    result_id: string;
     category: string;
     decided_by: string;
     status: string;
