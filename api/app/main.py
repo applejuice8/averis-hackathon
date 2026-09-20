@@ -7,7 +7,10 @@ from sqlalchemy import func, select
 
 from .api.router import api_router
 from .core.config import settings
+from .core.logging import configure_logging, trace_middleware
 from .db.session import init_db
+
+configure_logging(settings.log_format, settings.gcp_project_id)
 
 
 @asynccontextmanager
@@ -18,6 +21,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SDOC Verifier API", version="0.1.0", lifespan=lifespan)
 app.include_router(api_router)
+app.middleware("http")(trace_middleware)
 
 app.add_middleware(
     CORSMiddleware,
