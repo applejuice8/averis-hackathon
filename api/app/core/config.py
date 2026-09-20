@@ -129,12 +129,15 @@ class Settings(BaseSettings):
         return str(REPO_ROOT / self.upload_data_dir)
 
     def data_dir_for(self, email_id: str) -> str:
-        """Bundle emails read from the read-only mount; ingested or uploaded
-        emails (gmail_, manual_) keep their attachments in writable dirs."""
+        """Bundle emails read from the read-only mount; Gmail-ingested emails
+        keep their attachments in a separate writable dir (its own volume).
+        Manually-added (manual_*) and live-intake (upload_*) emails both write
+        under uploads_root (DATA_DIR/uploads), the one writable path actually
+        mounted in both docker compose (the `uploads` volume) and Cloud Run
+        (the GCS bucket mount) — so they resolve through resolved_data_dir,
+        same as bundle emails."""
         if email_id.startswith("gmail_"):
             return self.resolved_gmail_data_dir
-        if email_id.startswith("manual_"):
-            return self.resolved_upload_data_dir
         return self.resolved_data_dir
 
 

@@ -43,6 +43,7 @@ export type Run = {
   finished_at: string | null;
   stats: Record<string, number> | null;
   score: Record<string, unknown> | null;
+  error: string | null;
 };
 
 export type ReviewItem = {

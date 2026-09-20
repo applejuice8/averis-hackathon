@@ -58,14 +58,10 @@ def check_content(name: str, data: bytes) -> None:
             raise IntakeError(f"{name} is not UTF-8 text.") from None
 
 
-def validate_submission(sender: str, subject: str, body: str,
-                        uploads: list[tuple[str, bytes]]) -> list[IntakeFile]:
-    if not sender.strip() or len(sender) > MAX_SENDER:
-        raise IntakeError(f"Enter a sender address (up to {MAX_SENDER} characters).")
-    if not subject.strip() or len(subject) > MAX_SUBJECT:
-        raise IntakeError(f"Enter a subject (up to {MAX_SUBJECT} characters).")
-    if len(body) > MAX_BODY:
-        raise IntakeError(f"The body is limited to {MAX_BODY:,} characters.")
+def validate_files(uploads: list[tuple[str, bytes]]) -> list[IntakeFile]:
+    """File-count, size, type and content-sniffing limits only — independent
+    of the text fields, so callers with different sender/subject rules (e.g.
+    the manual-intake form) can still share this hardening."""
     if len(uploads) > MAX_FILES:
         raise IntakeError(f"Attach at most {MAX_FILES} files.")
     taken: set[str] = set()
@@ -83,6 +79,17 @@ def validate_submission(sender: str, subject: str, body: str,
         check_content(name, data)
         files.append(IntakeFile(name, data))
     return files
+
+
+def validate_submission(sender: str, subject: str, body: str,
+                        uploads: list[tuple[str, bytes]]) -> list[IntakeFile]:
+    if not sender.strip() or len(sender) > MAX_SENDER:
+        raise IntakeError(f"Enter a sender address (up to {MAX_SENDER} characters).")
+    if not subject.strip() or len(subject) > MAX_SUBJECT:
+        raise IntakeError(f"Enter a subject (up to {MAX_SUBJECT} characters).")
+    if len(body) > MAX_BODY:
+        raise IntakeError(f"The body is limited to {MAX_BODY:,} characters.")
+    return validate_files(uploads)
 
 
 def new_email_id(now: datetime | None = None, token: str | None = None) -> str:

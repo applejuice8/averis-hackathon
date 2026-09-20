@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GmailAccount, GmailPreviewItem, request } from "@/lib/api";
+import { LockedHint, useReviewer } from "../components/Reviewer";
 
 const WINDOWS = [
   { days: 1, label: "Past 1 day" },
@@ -71,6 +72,7 @@ function groupKey(d: Date | null, mode: string): string {
 
 export default function GmailControls({ accounts }: { accounts: GmailAccount[] }) {
   const router = useRouter();
+  const { unlocked } = useReviewer();
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
@@ -277,9 +279,10 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
                 </aside>
               </div>
             </>}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", marginTop: 16 }}>
+            <LockedHint action="import Gmail messages"/>
             <button type="button" className="ghost" onClick={close} disabled={importing}>Cancel</button>
-            <button type="button" onClick={importSelected} disabled={importing || selected.size === 0}>
+            <button type="button" onClick={importSelected} disabled={importing || selected.size === 0 || !unlocked}>
               {importing ? "Importing…" : `Import selected (${selected.size})`}
             </button>
           </div>
