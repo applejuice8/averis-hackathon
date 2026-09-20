@@ -47,5 +47,5 @@ async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depend
     if email is None:
         raise HTTPException(404, "No such email")
     return await run_in_threadpool(
-        preview_attachment, settings.resolved_data_dir, email.attachments or [], index
+        preview_attachment, settings.data_dir_for(email_id), email.attachments or [], index
     )

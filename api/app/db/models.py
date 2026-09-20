@@ -58,3 +58,16 @@ class Review(Base):
     payload = Column(JSONB)
     reviewer = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class GmailAccount(Base):
+    __tablename__ = "gmail_accounts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    google_email = Column(Text, unique=True)
+    refresh_token = Column(Text)  # plaintext (hackathon); encrypt for production
+    token_expiry = Column(DateTime(timezone=True))
+    history_id = Column(Text)
+    last_synced_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
