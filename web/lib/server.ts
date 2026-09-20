@@ -52,6 +52,20 @@ export async function boundedBody(stream: ReadableStream<Uint8Array> | null, lim
   return body.buffer;
 }
 
+/** Whether this caller may write: mirrors the API's `require_reviewer` gate. 204 = allowed, anything else = locked. */
+export async function reviewerUnlocked(passcode: string | undefined): Promise<boolean> {
+  try {
+    const r = await fetch(`${apiBase()}/api/auth/check`, {
+      headers: passcode ? { "x-demo-passcode": passcode } : {},
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    return r.status === 204;
+  } catch {
+    return false;
+  }
+}
+
 export function gatewayError(error: unknown): Response {
   const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
   const status = error instanceof BodyTooLarge ? 413 : timeout ? 504 : 502;
