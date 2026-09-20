@@ -334,6 +334,19 @@ Both run on every push, together with `tsc --noEmit` and `next build`,
 and the API job runs with no database and no API key so we keep noticing
 if something starts needing them.
 
+The spam detector is a measured word TF-IDF + logistic-regression pipeline.
+Its experiment history and limitations are in `api/ml/PERFORMANCE.md`; executed
+notebooks stay in `api/ml/notebooks/`. Retrain the production artifact with:
+
+```bash
+uv run python -m api.ml.train
+```
+
+The command atomically writes `api/ml/models/spam.joblib`, including the
+selected threshold and dataset fingerprint. Joblib artifacts can execute code
+while loading, so deploy only the artifact produced from this repository and
+never load an uploaded or otherwise untrusted model file.
+
 ---
 
 ## 10. Cloud deployment (Google Cloud Run + Vercel)

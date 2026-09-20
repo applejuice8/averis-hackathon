@@ -38,7 +38,7 @@ class PipelineResult(Base):
     run_id = Column(UUID(as_uuid=True), ForeignKey("runs.id"))
     email_id = Column(Text, ForeignKey("emails.email_id"))
     category = Column(Text)  # BL_COMPARISON | SI_REQUEST | INVOICE_QUERY | GENERAL | SPAM
-    decided_by = Column(Text)  # 'rule' | 'llm'
+    decided_by = Column(Text)  # 'rule' | 'llm' | 'ml'
     si_fields = Column(JSONB)
     bl_fields = Column(JSONB)
     doc_types = Column(JSONB)

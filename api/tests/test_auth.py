@@ -16,6 +16,18 @@ from app.core.config import settings  # noqa: E402
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+# POST routes that do not write anything. They take a request body, which is the
+# only reason they are POSTs, and they change no state: no database write, no
+# file write, no external call that costs money. Reads stay open so signed-out
+# judges can exercise them, same as every GET.
+#
+# Keep this list short and justify every entry. Anything that touches the
+# database, the uploads volume, the scorer, or an LLM is a write and belongs
+# behind require_reviewer instead.
+READ_ONLY_POSTS = {
+    "/api/spam/detect",  # runs the local sklearn classifier in a threadpool
+}
+
 
 @pytest.fixture
 def client():
@@ -61,8 +73,18 @@ def test_every_write_route_requires_the_passcode(client):
               if (prefix + r.path).startswith("/api") and r.methods & WRITE_METHODS]
     assert writes, "expected write routes under /api"
     unguarded = [prefix + r.path for r, prefix in routes_with_prefix
-                 if (prefix + r.path).startswith("/api") and r.methods & WRITE_METHODS and not _guarded(r)]
+                 if (prefix + r.path).startswith("/api") and r.methods & WRITE_METHODS
+                 and not _guarded(r) and (prefix + r.path) not in READ_ONLY_POSTS]
     assert unguarded == [], f"write routes without require_reviewer: {unguarded}"
+
+
+def test_the_read_only_post_allowlist_is_not_stale(client):
+    """Every allowlisted path must still exist, so the list cannot quietly rot
+    into a blanket exemption that hides a real write route."""
+    routes_with_prefix = list(_flatten_routes(main.app))
+    live = {prefix + r.path for r, prefix in routes_with_prefix if r.methods & WRITE_METHODS}
+    stale = READ_ONLY_POSTS - live
+    assert stale == set(), f"allowlisted routes that no longer exist: {stale}"
 
 
 def test_model_assist_is_a_post(client):

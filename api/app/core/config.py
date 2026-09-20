@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     uploads_subdir: str = "uploads"
     log_format: str = "text"  # "json" => Cloud Logging structured lines
 
+    # A missing artifact makes the pipeline spam gate a no-op and the direct
+    # detection endpoint unavailable.
+    spam_model_path: str = "api/ml/models/spam.joblib"
+
     # gmail ingest (writable, separate from the read-only provided bundle)
     gmail_data_dir: str = "data-gmail"
     # manual intake uploads (writable; attached documents land here)
@@ -113,6 +117,13 @@ class Settings(BaseSettings):
     @property
     def uploads_root(self) -> Path:
         return Path(self.resolved_data_dir) / self.uploads_subdir
+
+    @property
+    def resolved_spam_model_path(self) -> str:
+        """Relative SPAM_MODEL_PATH anchors at the repo root, not the cwd."""
+        if os.path.isabs(self.spam_model_path):
+            return self.spam_model_path
+        return str(REPO_ROOT / self.spam_model_path)
 
     @property
     def resolved_gmail_data_dir(self) -> str:

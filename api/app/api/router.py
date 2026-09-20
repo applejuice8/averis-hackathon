@@ -2,7 +2,7 @@
 repositories/services; no SQL or business logic lives here."""
 from fastapi import APIRouter
 
-from .routes import auth, calendar, emails, gmail, intake, pipeline, review
+from .routes import auth, calendar, emails, gmail, intake, pipeline, review, spam
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
@@ -12,3 +12,4 @@ api_router.include_router(pipeline.router)
 api_router.include_router(review.router)
 api_router.include_router(calendar.router)
 api_router.include_router(gmail.router)
+api_router.include_router(spam.router)
