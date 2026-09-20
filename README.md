@@ -338,14 +338,12 @@ if something starts needing them.
 
 ## 10. Cloud deployment (Google Cloud Run + Vercel)
 
-**Status: not yet deployed.** This section describes the target topology and
-how to operate it once it is. No live URLs exist yet — do not treat any
-URL-shaped text below as real; they're filled in after the first deploy.
+**Status: live.** Operator runbook: [docs/deploy.md](docs/deploy.md).
 
 | | |
 |---|---|
-| Web | Vercel, `<vercel-url>` |
-| API | Cloud Run, `<api-url>` (`<api-url>/docs` for the OpenAPI UI) |
+| Web | Vercel, https://secret-hack.vercel.app |
+| API | Cloud Run, https://sdoc-api-969206696114.asia-southeast1.run.app ([`/docs`](https://sdoc-api-969206696114.asia-southeast1.run.app/docs) for the OpenAPI UI) |
 
 ```
  browser ──► web (Vercel, public) ──/api/* server-side proxy──► sdoc-api (Cloud Run, public; writes need the reviewer passcode)

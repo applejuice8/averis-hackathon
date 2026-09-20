@@ -2,12 +2,10 @@
 
 Operator runbook for the Cloud Run + Vercel deployment. Design and cost
 rationale: [`docs/superpowers/plans/2026-09-20-vercel-cost-control-amendment.md`](superpowers/plans/2026-09-20-vercel-cost-control-amendment.md).
-Verified deploy sequence this runbook follows:
-[`.superpowers/sdd/2026-09-20-cloud-deploy/task-14-runbook.md`](../.superpowers/sdd/2026-09-20-cloud-deploy/task-14-runbook.md).
 
-**Status: not yet deployed.** No live URLs exist. Every `<...>` placeholder
-below is filled in after the first real deploy (Task 14) — do not treat any
-URL-shaped text in this file as real.
+**Status: live.** URLs and the deployed image tag are in
+[Live URLs](#live-urls) below. Re-verify with `bash scripts/gcp/smoke.sh`
+rather than trusting this file after a redeploy.
 
 ## What runs where
 
@@ -150,17 +148,30 @@ image tag is unchanged.
 8. **Record**
 
    Write the API URL, the Vercel URL, the deployed commit SHA, and the
-   guard state into this file once the deploy is real. Until then the
-   placeholders below stay as-is.
+   guard state into the table below after every deploy that changes them.
 
 ## Live URLs
 
+Deployed 2026-09-21. Re-check these against
+`gcloud run services describe sdoc-api --project averis-email-system --region asia-southeast1`
+rather than trusting this table after a redeploy.
+
 | | URL |
 |---|---|
-| Web (Vercel) | `<vercel-url>` — filled in after the first deploy |
-| API (Cloud Run) | `<api-url>` — filled in after the first deploy |
-| API docs | `<api-url>/docs` |
-| Deployed commit | `<commit-sha>` |
+| Web (Vercel) | https://secret-hack.vercel.app |
+| API (Cloud Run) | https://sdoc-api-969206696114.asia-southeast1.run.app |
+| API docs | https://sdoc-api-969206696114.asia-southeast1.run.app/docs |
+| Deployed image tag | `6e55ccb` (`.../sdoc/api:6e55ccb`) |
+| Billing guard | armed, RM40/month — recovery is manual (see below) |
+
+Verified at deploy time: `/health` reports `writes_protected: true`,
+`run_executor: cloudrun-job`, database reachable, dataset present at `/data`.
+
+The Vercel project is currently deployed from a local CLI link
+(`npx vercel --prod` from the repo root), not the GitHub integration, because
+the Vercel GitHub app is not yet authorised on `applejuice8/secret-hack`.
+Until an owner authorises it, production deploys are manual and pushing to
+`main` does NOT redeploy the web app. See "Vercel Git integration" below.
 
 ## Everyday operations
 
@@ -337,6 +348,40 @@ separate, deliberate change wires OAuth secrets and a production redirect
 URI into the deploy. Do not expect "Import from Gmail" to work on the live
 demo URL.
 
+## Vercel Git integration — currently manual
+
+The Vercel project is NOT connected to the shared repo's GitHub integration.
+The Vercel GitHub app is authorised on a personal fork, not on
+`applejuice8/secret-hack`, so importing from the dashboard kept cloning the
+wrong repository.
+
+Current workaround — the project is linked locally and deployed by CLI, from
+the **repo root** (not from `web/`; the project's Root Directory is already
+`web`, so running the CLI inside `web/` makes Vercel look for `web/web`):
+
+```bash
+npx vercel          # preview
+npx vercel --prod   # production
+```
+
+Consequences while this stands:
+- Pushing to `main` does NOT redeploy the web app. Someone must run
+  `npx vercel --prod` by hand.
+- Pull requests get no automatic preview deployments.
+- Task 19's deploy-on-merge automation covers the Cloud Run side only; the
+  web side stays manual until this is fixed.
+
+Permanent fix, which needs the repo owner (`applejuice8`), not a
+collaborator:
+1. Owner authorises the Vercel GitHub app for `applejuice8/secret-hack`.
+2. In the Vercel project: Settings -> Git -> connect it to that repository.
+3. Keep Root Directory `web`, and keep `API_URL` scoped to **Production
+   only**, so preview deployments cannot write to production data.
+4. Delete any stray `web/.vercel` directory left by a CLI run from the wrong
+   working directory.
+
+After that, `main` deploys production automatically and PRs get previews.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -348,12 +393,14 @@ demo URL.
 | Run refused with 429 | the rolling 24h run allowance (`max_runs_per_day`) is used up — wait, it clears on its own |
 | Runs never get a score | check the run was started with no email filter (subset runs and `reprocess` are never scored); confirm `sdoc-api`'s service account has `roles/run.invoker` on `sdoc-scorer` |
 | Billing guard fired unexpectedly | see "The RM40 billing guard" above — diagnose before relinking |
+| `smoke.sh`: HTTP 411 on a write check | Google Frontend rejects an empty POST with no `Content-Length` before it reaches FastAPI — send `Content-Length: 0` (already fixed in `smoke.sh`) |
+| `smoke.sh`: HTTP 403 through the Vercel proxy | the Next proxy requires same-origin writes and `curl` sends no `Origin` — send `Origin: $WEB_URL` (already fixed in `smoke.sh`) |
+| `gcloud`: "mount_path: should be a valid unix absolute path" on Windows | Git Bash/MSYS rewrote `/data/uploads`. Do NOT set `MSYS_NO_PATHCONV=1` globally (it breaks the gcloud launcher); use `MSYS2_ARG_CONV_EXCL="volume=uploads,mount-path="` |
 
 ## Verification
 
-Before treating any of the above as accurate for a given deploy, confirm
-against the live URLs once they exist: `bash scripts/gcp/smoke.sh` must
-print `smoke OK`, `/health` must report `writes_protected: true` and
+Before treating any of the above as accurate for a given deploy, re-confirm
+against the live URLs: `bash scripts/gcp/smoke.sh` must print `smoke OK`, `/health` must report `writes_protected: true` and
 `run_executor: "cloudrun-job"`, and `gcloud billing projects describe
 averis-email-system --project averis-email-system` must still report
 `billingEnabled: True`.
