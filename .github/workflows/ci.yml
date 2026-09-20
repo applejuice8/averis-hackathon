@@ -16,6 +16,7 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run ruff check api scripts/gcp/killswitch
+      - run: bash scripts/gcp/selftest.sh
       - name: Billing guard deployment safety (offline)
         shell: pwsh
         run: ./scripts/gcp/test-cost-guard.ps1
