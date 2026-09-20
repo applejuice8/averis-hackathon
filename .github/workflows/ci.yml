@@ -45,3 +45,46 @@ jobs:
       - run: pnpm exec tsc --noEmit
       - run: pnpm build
       - run: pnpm test:proxy
+
+  images:
+    name: container smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build api image
+        run: docker build -f api/Dockerfile -t sdoc-api:ci .
+
+      - name: Boot api container
+        run: docker run -d --name sdoc-api-ci -p 8000:8000 sdoc-api:ci
+
+      - name: Wait for /livez
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/livez >/dev/null; then
+              curl -s http://localhost:8000/livez
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "api never became healthy" >&2
+          docker logs sdoc-api-ci >&2
+          exit 1
+
+      - name: Assert baked-in dataset and writable uploads
+        run: |
+          inbox_count=$(docker exec sdoc-api-ci sh -c 'ls /data/inbox | wc -l')
+          attachments_count=$(docker exec sdoc-api-ci sh -c 'ls /data/attachments | wc -l')
+          echo "inbox=$inbox_count attachments=$attachments_count"
+          test "$inbox_count" -eq 520
+          test "$attachments_count" -eq 250
+          docker exec sdoc-api-ci sh -c 'touch /data/uploads/.probe && echo uploads-writable'
+
+      - name: Stop api container
+        if: always()
+        run: docker rm -f sdoc-api-ci || true
+
+      # Web image build needs no secrets (Next resolves API_URL at request time,
+      # not at build time), so it's safe to build in CI as a smoke check too.
+      - name: Build web image (prod target, no secrets required)
+        run: docker build --target prod -t sdoc-web:ci ./web

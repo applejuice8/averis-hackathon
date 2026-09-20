@@ -6,16 +6,20 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
-    env_file: .env               # NEON_DB_URI, OPENROUTER_API_KEY
+    env_file:                    # NEON_DB_URI, OPENROUTER_API_KEY
+      - path: .env
+        required: false
     environment:
       DATA_DIR: /data
       GMAIL_DATA_DIR: /data-gmail
       SCORER_URL: http://scorer:8000
+      CORS_ORIGINS: http://localhost:3000
     volumes:
-      - ./docs-provided/problem-statement/sdoc-hackathon-bundle:/data:ro
+      - uploads:/data/uploads    # dataset is baked into the image; only uploads persist
       - gmail-data:/data-gmail
     ports:
       - "8000:8000"
+    # HEALTHCHECK is baked into api/Dockerfile (hits /livez); no override needed here.
 
   web:
     build:
@@ -33,7 +37,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   scorer:                        # provided eval server; dev-only dependency
     build: ./docs-provided/problem-statement/sdoc-hackathon-docker/server
@@ -45,4 +50,5 @@ services:
       - "8080:8000"
 
 volumes:
+  uploads:                       # writable store for reviewer-uploaded files (mirrors Cloud Run bucket mount)
   gmail-data:                    # writable store for Gmail-ingested attachments
