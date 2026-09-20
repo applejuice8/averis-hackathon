@@ -1,14 +1,20 @@
 """Spam-detection payloads — separate from ORM so the wire shape is explicit."""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SpamDetectRequest(BaseModel):
     """Same fields the pipeline sees — sender, subject and body carry the
     spam signal; attachment names are optional context."""
-    sender: str = ""
-    subject: str = ""
-    body: str = ""
-    attachments: list[str] = Field(default_factory=list)
+    sender: str = Field(default="", max_length=320)
+    subject: str = Field(default="", max_length=2_000)
+    body: str = Field(default="", max_length=100_000)
+    attachments: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def require_text(self):
+        if not any(value.strip() for value in (self.sender, self.subject, self.body)):
+            raise ValueError("sender, subject, or body is required")
+        return self
 
 
 class SpamDetectResponse(BaseModel):

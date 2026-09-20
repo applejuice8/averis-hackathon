@@ -80,6 +80,18 @@ def test_model_ham_falls_through_to_rules(no_model, monkeypatch):
     assert cat == "GENERAL"
 
 
+def test_detect_route_rejects_empty_input(client):
+    response = client.post("/api/spam/detect", json={})
+
+    assert response.status_code == 422
+
+
+def test_detect_route_rejects_oversized_input(client):
+    response = client.post("/api/spam/detect", json={"body": "x" * 100_001})
+
+    assert response.status_code == 422
+
+
 def test_detect_route_503_without_model(no_model, client):
     r = client.post(
         "/api/spam/detect",
@@ -96,3 +108,22 @@ def test_detect_route_returns_verdict(no_model, monkeypatch, client):
     )
     assert r.status_code == 200
     assert r.json() == {"spam": True, "score": 0.9}
+
+
+def test_packaged_model_serves_spam_verdict(monkeypatch, client):
+    monkeypatch.setattr(settings, "spam_model_path", "api/ml/models/spam.joblib")
+    monkeypatch.setattr(spam, "_detector", None)
+    monkeypatch.setattr(spam, "_load_failed", False)
+
+    response = client.post(
+        "/api/spam/detect",
+        json={
+            "sender": SPAMMY["from"],
+            "subject": SPAMMY["subject"],
+            "body": SPAMMY["body"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["spam"] is True
+    assert 0 <= response.json()["score"] <= 1

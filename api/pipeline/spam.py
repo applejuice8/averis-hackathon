@@ -4,9 +4,13 @@ The previous domain blocklist and regex memorised the bundled dataset instead
 of generalising to unseen messages. ``predict_spam`` is the single inference
 entry point and returns ``None`` until a trained model artifact is available.
 """
+
+import logging
 import os
 import threading
 from typing import NamedTuple
+
+logger = logging.getLogger(__name__)
 
 
 class SpamVerdict(NamedTuple):
@@ -34,10 +38,11 @@ def _detector_or_none():
         if _detector is not None or _load_failed:
             return _detector
         try:
-            from ml.predict import SpamDetector
+            from ml.model import SpamDetector
 
             _detector = SpamDetector.load(settings.resolved_spam_model_path)
         except Exception:
+            logger.exception("failed to load spam model artifact")
             _load_failed = True
             return None
     return _detector
@@ -49,8 +54,12 @@ def predict_spam(email: dict) -> SpamVerdict | None:
     det = _detector_or_none()
     if det is None:
         return None
-    text = "\n".join(
-        p for p in (email.get("from"), email.get("subject"), email.get("body")) if p
+    from ml.model import format_email
+
+    text = format_email(
+        sender=email.get("from") or "",
+        subject=email.get("subject") or "",
+        body=email.get("body") or "",
     )
     score = det.score(text)
     return SpamVerdict(spam=score >= det.threshold, score=score)
