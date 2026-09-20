@@ -77,11 +77,11 @@ class EmailDetail(BaseModel):
 
 
 class EmailCreate(BaseModel):
-    """Manual inbox entry — mirrors the bundle's email_*.json records."""
+    """Manual inbox entry — the fields of the bundle's email_*.json records.
+    Documents arrive as uploaded files, not path strings."""
     sender: str = ""
     subject: str = ""
     body: str = ""
-    attachments: list[str] = []
 
     @model_validator(mode="after")
     def _not_empty(self) -> "EmailCreate":

@@ -1002,16 +1002,6 @@ pre {
     pointer-events: none;
 }
 
-.add-email-bar {
-    display: flex;
-    justify-content: flex-end;
-    margin: -8px 0 14px;
-}
-
-.add-email-panel {
-    margin: 0 0 24px;
-}
-
 .upload-fields {
     display: grid;
     gap: 12px;
@@ -1025,16 +1015,40 @@ pre {
 }
 
 .upload-fields input,
-.upload-fields textarea,
-.upload-file input[type="file"] {
+.upload-fields textarea {
     width: 100%;
 }
 
-.upload-file input[type="file"] {
-    padding: 14px;
-    border: 1px dashed var(--border);
+.file-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 4px;
+}
+
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
     border-radius: 7px;
     background: var(--bg);
+    padding: 7px 10px;
+    font-size: 12px;
+}
+
+.file-chip button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    padding: 0 2px;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.file-chip button:hover {
+    color: var(--bad);
+    filter: none;
 }
 
 @media (max-width: 700px) {

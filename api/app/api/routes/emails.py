@@ -1,6 +1,8 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...repositories import emails as emails_repo
@@ -29,17 +31,34 @@ async def list_emails(
 
 
 @router.post("/emails", response_model=EmailCreated, status_code=201)
-async def create_email(body: EmailCreate, s: AsyncSession = Depends(get_db)):
-    """Manual intake — a hand-entered or file-uploaded email lands in the same
-    `emails` table and is picked up by the next pipeline run. Ids are always
-    assigned (`manual_*`) so an upload can never overwrite a bundle record."""
+async def create_email(
+    sender: Annotated[str, Form()] = "",
+    subject: Annotated[str, Form()] = "",
+    body: Annotated[str, Form()] = "",
+    files: Annotated[list[UploadFile] | None, File()] = None,
+    s: AsyncSession = Depends(get_db),
+):
+    """Manual intake — a hand-entered email plus any documents the user
+    attaches directly. Ids are always assigned (`manual_*`) so an upload can
+    never overwrite a bundle record; files persist in the writable upload dir
+    and the email is picked up by the next pipeline run."""
+    try:
+        EmailCreate(sender=sender, subject=subject, body=body)
+    except ValidationError as e:
+        raise HTTPException(422, "sender, subject or body must be non-empty") from e
+
+    from ...core.config import settings
+    from ...services.attachments import save_attachments
+
     email_id = f"manual_{uuid.uuid4().hex[:10]}"
+    uploads = [(f.filename or "file", await f.read()) for f in files or [] if f.filename]
+    attachments = save_attachments(settings.resolved_upload_data_dir, email_id, uploads)
     await emails_repo.upsert_many(s, [{
         "email_id": email_id,
-        "from": body.sender.strip(),
-        "subject": body.subject.strip(),
-        "body": body.body,
-        "attachments": [a.strip() for a in body.attachments if a.strip()],
+        "from": sender.strip(),
+        "subject": subject.strip(),
+        "body": body,
+        "attachments": attachments,
     }])
     return EmailCreated(email_id=email_id)
 
