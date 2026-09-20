@@ -29,6 +29,9 @@ export function ReviewerPanel() {
 
   async function unlock(event: React.FormEvent) {
     event.preventDefault();
+    // A second Enter before the first request settles would fire a duplicate
+    // POST /auth/reviewer; the button is disabled but the form can still submit.
+    if (busy) return;
     const attempt = passcode;
     // Clear the field immediately — the passcode never lingers in the input
     // or in component state beyond this one closure variable.
