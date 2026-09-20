@@ -18,3 +18,6 @@ submission*.json
 
 # LLM response cache
 .cache/
+
+# Subagent-driven development scratch (ledger, briefs, review packages)
+.superpowers/

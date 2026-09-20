@@ -4213,7 +4213,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 Requested by the user on top of the spec's alert-only budget. It is armed at **$10**, double the alert budget, because unlinking billing takes the whole demo down and needs a manual relink. Budget data lags real spend by hours, so this is a backstop, not a rate limiter.
 
 **Files:**
-- Create: `scripts/gcp/killswitch/main.py`, `scripts/gcp/killswitch/requirements.txt`, `scripts/gcp/killswitch.sh`, `api/tests/test_killswitch.py`
+- Create: `scripts/gcp/killswitch/decision.py`, `scripts/gcp/killswitch/main.py`, `scripts/gcp/killswitch/requirements.txt`, `scripts/gcp/killswitch.sh`, `api/tests/test_killswitch.py`
+
+**Why the split:** the decision rule lives in `decision.py`, which imports only the standard library, so the test suite (and CI, which installs only this project's dependencies) can import it without `functions-framework` or any GCP client.
 
 **Interfaces:**
 - Consumes: `common.sh` names; the budget from Task 13.
@@ -4235,13 +4237,13 @@ from pathlib import Path
 
 import pytest
 
-SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "gcp" / "killswitch" / "main.py"
+SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "gcp" / "killswitch" / "decision.py"
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location("killswitch_main", SOURCE)
+    spec = importlib.util.spec_from_file_location("killswitch_decision", SOURCE)
     module = importlib.util.module_from_spec(spec)
-    sys.modules["killswitch_main"] = module
+    sys.modules["killswitch_decision"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -4268,6 +4270,23 @@ Expected: FAIL — `scripts/gcp/killswitch/main.py` does not exist.
 
 - [ ] **Step 3: Write the function**
 
+Create `scripts/gcp/killswitch/decision.py`:
+
+```python
+"""When the kill switch should fire. Standard library only, so the test
+suite can import it without the Cloud Functions runtime."""
+
+
+def should_stop(payload: dict) -> bool:
+    """True only when reported cost has reached a positive budget."""
+    try:
+        cost = float(payload.get("costAmount", 0))
+        budget = float(payload.get("budgetAmount", 0))
+    except (TypeError, ValueError):
+        return False
+    return budget > 0 and cost >= budget
+```
+
 Create `scripts/gcp/killswitch/main.py`:
 
 ```python
@@ -4286,19 +4305,10 @@ import logging
 import os
 
 import functions_framework
+from decision import should_stop
 
 TARGET_PROJECT_ID = os.environ.get("TARGET_PROJECT_ID", "")
 log = logging.getLogger("killswitch")
-
-
-def should_stop(payload: dict) -> bool:
-    """True only when reported cost has reached a positive budget."""
-    try:
-        cost = float(payload.get("costAmount", 0))
-        budget = float(payload.get("budgetAmount", 0))
-    except (TypeError, ValueError):
-        return False
-    return budget > 0 and cost >= budget
 
 
 def _disable_billing(project_id: str) -> str:
@@ -4338,7 +4348,7 @@ google-api-python-client==2.*
 - [ ] **Step 4: Run the test**
 
 Run: `T` with `api/tests/test_killswitch.py`
-Expected: `7 passed`. If `functions_framework` is not installed locally, the import fails — in that case run `uv run --with functions-framework pytest api/tests/test_killswitch.py -q -p no:cacheprovider --basetemp=.pytest-tmp` and add that note to the step, since CI installs only the project's own dependencies.
+Expected: `7 passed`. The test loads `decision.py`, which imports nothing beyond the standard library, so no Cloud Functions packages are needed locally or in CI.
 
 - [ ] **Step 5: Write the deploy script**
 
@@ -4361,8 +4371,10 @@ TOPIC=budget-alerts
 PROJECT_NUMBER="$(project_number)"
 
 echo "==> APIs"
+# compute: gen2 functions build with the default compute service account,
+# which only exists once the Compute Engine API is on
 gcloud services enable pubsub.googleapis.com cloudfunctions.googleapis.com \
-  cloudbuild.googleapis.com eventarc.googleapis.com
+  cloudbuild.googleapis.com eventarc.googleapis.com compute.googleapis.com
 
 echo "==> topic $TOPIC"
 quiet gcloud pubsub topics describe "$TOPIC" || gcloud pubsub topics create "$TOPIC"
@@ -4372,10 +4384,12 @@ quiet gcloud iam service-accounts describe "$KILL_SA" ||
   gcloud iam service-accounts create sdoc-killswitch --display-name="sdoc-killswitch"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$KILL_SA" \
   --role=roles/billing.projectManager --condition=None >/dev/null
-# Cloud Build needs to build the function image in a fresh project
+# Cloud Build needs to build the function image in a fresh project. The
+# default compute SA can take a moment to appear after enabling the API.
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role=roles/cloudbuild.builds.builder --condition=None >/dev/null
+  --role=roles/cloudbuild.builds.builder --condition=None >/dev/null ||
+  echo "    note: could not grant the build role yet; if the deploy fails, rerun this script"
 
 echo "==> function sdoc-billing-killswitch"
 gcloud functions deploy sdoc-billing-killswitch \
