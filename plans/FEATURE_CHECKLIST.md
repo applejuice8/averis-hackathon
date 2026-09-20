@@ -36,10 +36,10 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 
 - [x] Rules-first classifier → BL_COMPARISON / SI_REQUEST / INVOICE_QUERY /
   GENERAL `api/pipeline/classify.py` · 🧪
-- [x] SPAM queue → PyTorch model seam `api/pipeline/spam.py`; the old
-  domain-blocklist/regex rules were removed (they memorised the bundled
-  junk domains). Artifact lands with the feat/ml model work — until then
-  the gate is a no-op and SPAM is unreachable by rules alone
+- [x] SPAM queue → model seam `api/pipeline/spam.py`; the old domain-blocklist/
+  regex rules were removed (they memorised the bundled junk domains). A
+  scikit-learn artifact lands with the feat/ml model work — until then the gate
+  is a no-op and SPAM is unreachable by rules alone
 - [x] `decided_by` marker (`rule` / `llm` / `ml`) for cost diagnostics
 - [x] Attachment-name + coded-subject cues (e.g. `AFRT - LONG BEACH_US`,
   `*_SI.*` / `*_BL.*` names)

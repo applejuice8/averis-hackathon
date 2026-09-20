@@ -1,5 +1,6 @@
-"""Spam detection seam — the learned model replaces the old domain/regex
-rules. These tests pin the contract without torch or a trained artifact.
+"""Spam detection seam replacing the old domain and regex rules.
+
+These tests pin the contract without a trained artifact.
 
     uv run pytest api/tests/test_spam.py -v
 """
@@ -32,7 +33,7 @@ SPAMMY = {
 @pytest.fixture
 def no_model(monkeypatch, tmp_path):
     """Point the model path at nothing and reset the loader cache."""
-    monkeypatch.setattr(settings, "spam_model_path", str(tmp_path / "missing.pt"))
+    monkeypatch.setattr(settings, "spam_model_path", str(tmp_path / "missing.joblib"))
     monkeypatch.setattr(spam, "_detector", None)
     monkeypatch.setattr(spam, "_load_failed", False)
 

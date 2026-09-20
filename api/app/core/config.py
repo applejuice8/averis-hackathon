@@ -54,9 +54,9 @@ class Settings(BaseSettings):
     enable_llm_fill: bool = False
     enable_vision_ocr: bool = False
 
-    # spam model — PyTorch artifact produced by api/ml/train.py; a missing
-    # file means the spam gate is a no-op and /api/spam/detect answers 503
-    spam_model_path: str = "api/ml/models/spam.pt"
+    # A missing artifact makes the pipeline spam gate a no-op and the direct
+    # detection endpoint unavailable.
+    spam_model_path: str = "api/ml/models/spam.joblib"
 
     # gmail ingest (writable, separate from the read-only provided bundle)
     gmail_data_dir: str = "data-gmail"

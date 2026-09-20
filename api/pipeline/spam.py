@@ -1,14 +1,8 @@
-"""Spam detection — a learned PyTorch model, not rules.
+"""Spam-model integration shared by the pipeline and detection API.
 
-The old domain blocklist + regex (SPAM_DOMAINS / SPAM_RE) memorised the
-bundled dataset's junk domains — 1.0 here, useless on anything unseen.
-The model lives in `api/ml/`; its artifact lands at
-`settings.spam_model_path`. predict_spam() is the single entry point,
-shared by the classify stage and POST /api/spam/detect.
-
-Returns None when no usable model is present — the classifier falls
-through to its other rules, so the pipeline keeps working before the
-model is trained.
+The previous domain blocklist and regex memorised the bundled dataset instead
+of generalising to unseen messages. ``predict_spam`` is the single inference
+entry point and returns ``None`` until a trained model artifact is available.
 """
 import os
 import threading
@@ -21,8 +15,8 @@ class SpamVerdict(NamedTuple):
 
 
 _lock = threading.Lock()
-_detector = None      # ml.predict.SpamDetector, loaded on first use
-_load_failed = False  # artifact existed but would not load — don't retry forever
+_detector = None
+_load_failed = False
 
 
 def _detector_or_none():
@@ -40,7 +34,7 @@ def _detector_or_none():
         if _detector is not None or _load_failed:
             return _detector
         try:
-            from ml.predict import SpamDetector  # api/ml — lands with the model
+            from ml.predict import SpamDetector
 
             _detector = SpamDetector.load(settings.resolved_spam_model_path)
         except Exception:

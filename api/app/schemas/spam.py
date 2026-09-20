@@ -1,5 +1,5 @@
 """Spam-detection payloads — separate from ORM so the wire shape is explicit."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SpamDetectRequest(BaseModel):
@@ -8,7 +8,7 @@ class SpamDetectRequest(BaseModel):
     sender: str = ""
     subject: str = ""
     body: str = ""
-    attachments: list[str] = []
+    attachments: list[str] = Field(default_factory=list)
 
 
 class SpamDetectResponse(BaseModel):

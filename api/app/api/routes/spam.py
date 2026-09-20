@@ -1,5 +1,4 @@
-"""Direct access to the spam model — the same detector the pipeline's
-classify stage consults, exposed for demos and evaluation."""
+"""HTTP access to the spam detector used by the classification pipeline."""
 import sys
 from pathlib import Path
 
@@ -25,6 +24,7 @@ async def detect_spam(req: SpamDetectRequest):
     verdict = await run_in_threadpool(predict_spam, record)
     if verdict is None:
         raise HTTPException(
-            503, "spam model not loaded — train it first (api/ml/train.py)"
+            status_code=503,
+            detail="spam model is unavailable",
         )
     return SpamDetectResponse(spam=verdict.spam, score=verdict.score)
