@@ -73,13 +73,7 @@ async def llm_assist_email(email_id: str, s: AsyncSession = Depends(get_db)):
     email = await emails_repo.get_by_id(s, email_id)
     if email is None:
         raise HTTPException(404, "no such email")
-    rec = {
-        "email_id": email.email_id,
-        "from": email.sender,
-        "subject": email.subject,
-        "body": email.body,
-        "attachments": email.attachments,
-    }
+    rec = emails_repo.to_record(email)
     from starlette.concurrency import run_in_threadpool
 
     return await run_in_threadpool(llm_assist, rec, settings.resolved_data_dir)

@@ -2,6 +2,7 @@
 import ssl
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -38,6 +39,13 @@ else:
     SessionLocal = None
 
 
+# create_all never alters an existing table; additive columns land here.
+MIGRATIONS = (
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'dataset'",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS error TEXT",
+)
+
+
 async def init_db():
     if engine is None:
         return
@@ -45,3 +53,5 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for ddl in MIGRATIONS:
+            await conn.execute(text(ddl))

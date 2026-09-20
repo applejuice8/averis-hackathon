@@ -14,6 +14,7 @@ class RunView(BaseModel):
     finished_at: datetime | None
     stats: dict | None
     score: dict | None
+    error: str | None = None
 
     @classmethod
     def from_orm_row(cls, r: Run) -> "RunView":
@@ -24,6 +25,7 @@ class RunView(BaseModel):
             finished_at=r.finished_at,
             stats=r.stats,
             score=r.score,
+            error=r.error,
         )
 
 
