@@ -74,3 +74,9 @@ class EmailDetail(BaseModel):
     body: str | None
     attachments: list[str]
     result: ResultDetail | None
+
+
+class ProcessOutcome(BaseModel):
+    email_id: str
+    status: str
+    category: str

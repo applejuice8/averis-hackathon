@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ...repositories import emails as emails_repo
 from ...repositories import results as results_repo
-from ...schemas.emails import EmailDetail, EmailListItem, ResultDetail
-from ..deps import get_db
+from ...schemas.emails import EmailDetail, EmailListItem, ProcessOutcome, ResultDetail
+from ...services.processing import AlreadyProcessing, process_one
+from ..deps import get_db, require_reviewer
 
 router = APIRouter()
 
@@ -40,7 +42,6 @@ async def get_email(email_id: str, s: AsyncSession = Depends(get_db)):
 async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depends(get_db)):
     from starlette.concurrency import run_in_threadpool
 
-    from ...core.config import settings
     from ...services.attachments import preview_attachment
 
     email = await emails_repo.get_by_id(s, email_id)
@@ -49,3 +50,17 @@ async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depend
     return await run_in_threadpool(
         preview_attachment, settings.resolved_data_dir, email.attachments or [], index
     )
+
+
+@router.post("/emails/{email_id}/reprocess", response_model=ProcessOutcome,
+             dependencies=[Depends(require_reviewer)])
+async def reprocess_email(email_id: str, s: AsyncSession = Depends(get_db)):
+    """Retry one email; the new result becomes the latest everywhere."""
+    email = await emails_repo.get_by_id(s, email_id)
+    if email is None:
+        raise HTTPException(404, f"no such email: {email_id}")
+    try:
+        result = await process_one(s, emails_repo.to_record(email), settings.resolved_data_dir)
+    except AlreadyProcessing as e:
+        raise HTTPException(409, "This email is already being processed. Wait for it to finish.") from e
+    return ProcessOutcome(email_id=email_id, status=result["status"], category=result["category"])
