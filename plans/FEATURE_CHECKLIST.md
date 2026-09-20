@@ -24,6 +24,9 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   `pipeline_results` table · 🟢
 - [x] Human review actions persisted (`reviews` table + result mutation)
   `api/app/services/review.py` · 🟢 POST verified
+- [x] Manual email intake — field-by-field form or .txt/.json file in the
+  sample format; ids assigned `manual_*` so uploads can't overwrite bundle
+  records `POST /api/emails` + `web/app/inbox/UploadEmail.tsx` · 🧪
 - [ ] Alembic migrations (currently `create_all` on startup)
 - [ ] Multi-run comparison view (diff between two runs)
 
@@ -127,6 +130,8 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   `api/app/main.py` · 🧪 🟢 (`emails_ingested: 520` live)
 - [x] `GET /api/emails` — list joined to latest result; filters
   `queue` / `status` / `q` · 🟢
+- [x] `POST /api/emails` — manual intake; validates non-empty, assigns
+  `manual_*` id · 🧪
 - [x] `GET /api/emails/{id}` — detail + latest result (incl. `result_id`) · 🟢
 - [x] `POST /api/pipeline/run` (background task; optional subset + label) · 🟢
 - [x] `GET /api/runs`, `GET /api/runs/{id}` · 🟢
@@ -143,6 +148,9 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 
 - [x] Dashboard `/` — queue counts, triage stats · 🟢
 - [x] Inbox `/inbox` — full list, category/status/search filters · 🟢
+- [x] Inbox pagination — 10 per page, numbered window + prev/next,
+  filters/search preserved across pages · 🟢
+- [x] "Add email" intake panel — manual fields or file upload · 🟢
 - [x] Email detail `/emails/[id]` — verdict card, sender, rationale · 🟢
 - [x] SI-vs-BL diff table — 7 rows, mismatches highlighted with both
   values side by side · 🟢 (renders email_004's real mismatch)
