@@ -56,7 +56,7 @@ async def gmail_preview_list(
     try:
         return await gmail_preview(days=days)
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/gmail/sync", response_model=GmailSyncResult)
