@@ -33,7 +33,7 @@ async def run_pipeline(email_ids: list[str] | None = None, label: str | None = N
                 "attachments": email.attachments,
             }
             try:
-                r = await asyncio.to_thread(process_email, rec, settings.resolved_data_dir)
+                r = await asyncio.to_thread(process_email, rec, settings.data_dir_for(email.email_id))
             except Exception as e:
                 r = {
                     "email_id": email.email_id, "category": "GENERAL",
