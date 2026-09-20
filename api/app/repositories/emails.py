@@ -3,16 +3,13 @@ from sqlalchemy import desc, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Email, PipelineResult, Run
+from ..db.models import Email, PipelineResult
 
 
-def latest_run_id_subquery():
-    """Scalar subquery for 'the most recent run' — shared by inbox + review."""
-    return (
-        select(Run.id)
-        .order_by(desc(Run.started_at))
-        .limit(1)
-        .scalar_subquery()
+def latest_result_ids():
+    """Latest result for each email, including emails untouched by a subset run."""
+    return select(PipelineResult.id).distinct(PipelineResult.email_id).order_by(
+        PipelineResult.email_id, desc(PipelineResult.created_at), desc(PipelineResult.id)
     )
 
 
@@ -29,13 +26,13 @@ async def list_with_latest_results(
     status: str | None = None,
     q: str | None = None,
 ) -> list[tuple[Email, PipelineResult | None]]:
-    """Inbox view: every email outer-joined to its result in the latest run."""
+    """Inbox view: every email outer-joined to its latest available result."""
     stmt = (
         select(Email, PipelineResult)
         .outerjoin(
             PipelineResult,
             (PipelineResult.email_id == Email.email_id)
-            & (PipelineResult.run_id == latest_run_id_subquery()),
+            & (PipelineResult.id.in_(latest_result_ids())),
         )
         .order_by(Email.email_id)
     )
@@ -48,7 +45,7 @@ async def list_with_latest_results(
             and (not status or (r and r.status == status))
             and (
                 not q
-                or q.lower() in ((e.subject or "") + (e.sender or "")).lower()
+                or q.lower() in (e.email_id + (e.subject or "") + (e.sender or "")).lower()
             )
         ]
     return rows

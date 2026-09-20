@@ -79,7 +79,7 @@ def _extract_doc(doc, path: str):
 
     if doc.readable:
         ext = extract_fields(doc.text)
-        if all(v is None for v in ext["fields"].values()):
+        if settings.enable_llm_fill and all(v is None for v in ext["fields"].values()):
             # layout the deterministic parser doesn't know — ask the LLM
             llm = extract_fields_llm(doc.text)
             if llm and any(v is not None for v in llm.values()):

@@ -1,6 +1,6 @@
 const API = process.env.API_URL || "http://localhost:8000";
-// browser-side calls (client components) — compose can't resolve `api:8000`
-export const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin browser requests are forwarded to the API by Next.js.
+export const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL || "";
 
 export type EmailListItem = {
   email_id: string;
@@ -77,3 +77,12 @@ export const COMPARE_FIELDS = [
   "container_count",
   "gross_weight_kg",
 ] as const;
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${PUBLIC_API}${path}`, { ...init, signal: AbortSignal.timeout(120000) });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(typeof body?.detail === "string" ? body.detail : `Request failed (${response.status}). Please try again.`);
+  }
+  return response.json();
+}

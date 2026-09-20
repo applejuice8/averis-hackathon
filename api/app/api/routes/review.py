@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +29,7 @@ async def review_queue(s: AsyncSession = Depends(get_db)):
 
 @router.post("/review/{result_id}", response_model=ReviewOutcome)
 async def review_action(
-    result_id: str,
+    result_id: UUID,
     body: ReviewActionIn,
     s: AsyncSession = Depends(get_db),
 ):

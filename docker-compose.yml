@@ -19,7 +19,6 @@ services:
     build: ./web
     environment:
       API_URL: http://api:8000            # server-side fetch (compose DNS)
-      NEXT_PUBLIC_API_URL: http://localhost:8000  # browser-side calls
     ports:
       - "3000:3000"
     depends_on:

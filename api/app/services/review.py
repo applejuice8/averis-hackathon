@@ -26,7 +26,9 @@ async def apply_action(
 
     if action.action == "override_status" and action.payload:
         res.status = action.payload.get("status", res.status)
-        res.review_reason = action.payload.get("review_reason", res.review_reason)
+        res.review_reason = action.payload.get("review_reason") if res.status == "NEEDS_REVIEW" else None
+        res.defect_fields = []
+        res.has_defect = False
     elif action.action == "override_fields" and action.payload:
         res.defect_fields = action.payload.get("defect_fields", res.defect_fields)
         res.has_defect = bool(res.defect_fields)

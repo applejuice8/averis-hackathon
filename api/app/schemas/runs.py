@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from ..db.models import Run
 
@@ -32,6 +32,7 @@ class RunDetail(RunView):
 
 
 class RunStarted(BaseModel):
+    run_id: str
     started: bool
     email_ids: list[str] | str
 
@@ -54,6 +55,26 @@ class ReviewActionIn(BaseModel):
     action: ReviewActionKind
     payload: dict | None = None
     reviewer: str | None = None
+
+    @model_validator(mode="after")
+    def validate_payload(self):
+        payload = self.payload or {}
+        if self.action == "override_fields":
+            fields = payload.get("defect_fields")
+            allowed = {"shipper", "consignee", "notify_party", "port_of_loading",
+                       "port_of_discharge", "container_count", "gross_weight_kg"}
+            if not isinstance(fields, list) or any(
+                not isinstance(f, str) or f not in allowed for f in fields
+            ) or len(fields) != len(set(fields)):
+                raise ValueError("defect_fields must contain unique canonical field names")
+        if self.action == "override_status":
+            if payload.get("status") not in {"OK", "NEEDS_REVIEW"}:
+                raise ValueError("Choose OK or NEEDS_REVIEW; use override_fields for mismatches")
+            if payload["status"] == "NEEDS_REVIEW" and not (
+                isinstance(payload.get("review_reason"), str) and payload["review_reason"].strip()
+            ):
+                raise ValueError("Escalation needs a review reason")
+        return self
 
 
 class ReviewOutcome(BaseModel):
