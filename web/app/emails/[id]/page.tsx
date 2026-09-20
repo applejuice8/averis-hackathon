@@ -5,11 +5,13 @@ import StatusBadge from "../../components/StatusBadge";
 import LlmAssist from "./LlmAssist";
 import ReviewActions from "./ReviewActions";
 import Attachments from "./Attachments";
+import HighlightedText from "./HighlightedText";
 export const dynamic = "force-dynamic";
 export default async function EmailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const e = await api.email(id);
   const r = e.result;
+  const emailHighlightFields = {...(r?.bl_fields ?? {}), ...(r?.si_fields ?? {})};
   return <>
     <Link className="text-link" href="/inbox">← Back to inbox</Link><div className="page-heading" style={{marginTop:20}}><div><div className="eyebrow">{e.email_id} · {r ? QUEUES[r.category] ?? r.category : "Awaiting triage"}</div><h1>{e.subject}</h1><p>From {e.sender}</p></div><StatusBadge status={r?.status ?? null}/></div>
     {r?.review_reason && <div className="hero-note"><strong>{REASONS[r.review_reason] ?? r.review_reason}</strong><span className="muted">Inspect the attachments before making a decision.</span></div>}
@@ -20,8 +22,9 @@ export default async function EmailPage({ params }: { params: Promise<{ id: stri
       return <tr key={f}><td>{FIELDS[f]}</td><td className={diff ? "mismatch" : ""}>{String(r.si_fields?.[f] ?? "—")}</td><td className={diff ? "mismatch" : ""}>{String(r.bl_fields?.[f] ?? "—")}</td><td><span className={`badge ${missing ? "warn" : diff ? "bad" : "ok"}`}>{missing ? "Missing value" : diff ? "Differs" : "No flagged defect"}</span></td></tr>;
     })}</tbody></table></div></>}
     {r && <ReviewActions key={`${r.result_id}-${r.status}-${r.defect_fields.join()}`} resultId={r.result_id} status={r.status} defectFields={r.defect_fields} canCompare={r.category === "BL_COMPARISON"}/>}
-    <div className="grid2"><Attachments emailId={id} files={e.attachments}/><LlmAssist emailId={id}/></div>
-    <details className="panel"><summary>Original email</summary><pre className="email-body">{e.body}</pre></details>
+    <div className="section-heading"><h2>Email and source evidence</h2><span className="badge dim">Highlighted values use extracted fields</span></div>
+    <div className="evidence-grid"><section className="panel evidence-panel"><h2>Original email</h2><p className="muted">Values found in the email body are labelled with the same field names used in the comparison.</p><HighlightedText text={e.body} fields={emailHighlightFields} defectFields={r?.defect_fields ?? []}/></section><Attachments emailId={id} files={e.attachments} defectFields={r?.defect_fields ?? []}/></div>
+    <div className="grid2"><LlmAssist emailId={id}/></div>
     {r && <details className="panel"><summary>Detection evidence & classification source</summary><p className="muted">Classification: {r.decided_by === "llm" ? "model" : r.decided_by || "unknown"}. Review actions can override the original verdict.</p><pre>{JSON.stringify({document_types:r.doc_types,evidence:r.evidence},null,2)}</pre></details>}
   </>;
 }
