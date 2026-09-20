@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...repositories import results as results_repo
 from ...schemas.runs import ReviewActionIn, ReviewItem, ReviewOutcome
 from ...services import review as review_service
-from ..deps import get_db
+from ..deps import get_db, require_reviewer
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ async def review_queue(s: AsyncSession = Depends(get_db)):
     ]
 
 
-@router.post("/review/{result_id}", response_model=ReviewOutcome)
+@router.post("/review/{result_id}", response_model=ReviewOutcome, dependencies=[Depends(require_reviewer)])
 async def review_action(
     result_id: UUID,
     body: ReviewActionIn,

@@ -7,7 +7,7 @@ export default function LlmAssist({ emailId }: { emailId: string }) {
   const [error, setError] = useState("");
   async function run() {
     setBusy(true); setError(""); setData(null);
-    try { setData(await request<Record<string, unknown>>(`/api/pipeline/llm-assist/${emailId}`)); }
+    try { setData(await request<Record<string, unknown>>(`/api/pipeline/llm-assist/${emailId}`, { method: "POST" })); }
     catch (err) { setError(err instanceof Error ? err.message : "AI assist is unavailable."); }
     finally { setBusy(false); }
   }
