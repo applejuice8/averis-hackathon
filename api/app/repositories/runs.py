@@ -62,3 +62,15 @@ async def save_score(s: AsyncSession, run_id: str, score: dict) -> None:
     if run:
         run.score = score
         await s.commit()
+
+
+async def count_active(s: AsyncSession) -> int:
+    return (
+        await s.execute(select(func.count()).select_from(Run).where(Run.finished_at.is_(None)))
+    ).scalar_one()
+
+
+async def count_started_since(s: AsyncSession, since: datetime) -> int:
+    return (
+        await s.execute(select(func.count()).select_from(Run).where(Run.started_at >= since))
+    ).scalar_one()

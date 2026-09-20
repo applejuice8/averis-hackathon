@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     gcp_region: str = ""
     worker_job: str = "sdoc-worker"
 
+    # spend guards: a published passcode must not be able to pile up billable runs
+    max_active_runs: int = 1
+    max_runs_per_day: int = 20
+
     # "gcp-id-token" when the scorer is an IAM-private Cloud Run service
     scorer_auth: str = "none"
 

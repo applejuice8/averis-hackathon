@@ -1,5 +1,6 @@
 import sys
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -7,7 +8,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from pipeline.run import run_pipeline  # noqa: E402
 from pipeline.submission import build_submission, submit  # noqa: E402
 from pipeline.verdict import llm_assist  # noqa: E402
 
@@ -16,6 +16,7 @@ from ...repositories import emails as emails_repo  # noqa: E402
 from ...repositories import results as results_repo  # noqa: E402
 from ...repositories import runs as runs_repo  # noqa: E402
 from ...schemas.runs import RunDetail, RunStarted, RunView  # noqa: E402
+from ...services import executor  # noqa: E402
 from ..deps import get_db, require_reviewer  # noqa: E402
 
 router = APIRouter()
@@ -28,9 +29,20 @@ async def start_run(
     label: str | None = None,
     s: AsyncSession = Depends(get_db),
 ):
+    if await runs_repo.count_active(s) >= settings.max_active_runs:
+        raise HTTPException(409, "A run is already in progress. Wait for it to finish before starting another.")
+    since = datetime.now(UTC) - timedelta(days=1)
+    if await runs_repo.count_started_since(s, since) >= settings.max_runs_per_day:
+        raise HTTPException(429, "The daily run allowance is used up. Try again tomorrow.")
     run = await runs_repo.create(s, label or "manual")
     await s.commit()
-    background.add_task(run_pipeline, email_ids=email_ids, label=label, run_id=str(run.id))
+    try:
+        await executor.start_run(str(run.id), email_ids, background)
+    except executor.ExecutorError as e:
+        # no orphan "running forever" rows when the hand-off fails
+        await runs_repo.delete(s, run.id)
+        await s.commit()
+        raise HTTPException(502, f"Could not start the run: {e}") from e
     return RunStarted(run_id=str(run.id), started=True, email_ids=email_ids or "all")
 
 
