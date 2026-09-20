@@ -14,6 +14,7 @@ from app.core.config import settings  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.repositories import results as results_repo  # noqa: E402
 from app.repositories import runs as runs_repo  # noqa: E402
+from app.services import gcp  # noqa: E402
 
 from .verdict import to_submission_entry  # noqa: E402
 
@@ -29,10 +30,17 @@ async def build_submission(run_id: str) -> dict:
         }
 
 
+async def scorer_headers() -> dict[str, str]:
+    """Bearer ID token when the scorer is an IAM-private Cloud Run service."""
+    if settings.scorer_auth != "gcp-id-token":
+        return {}
+    return {"Authorization": f"Bearer {await gcp.id_token(settings.scorer_url)}"}
+
+
 async def submit(run_id: str) -> dict:
     sub = await build_submission(run_id)
     async with httpx.AsyncClient(timeout=60) as c:
-        r = await c.post(f"{settings.scorer_url}/submit", json=sub)
+        r = await c.post(f"{settings.scorer_url}/submit", json=sub, headers=await scorer_headers())
         r.raise_for_status()
         scoreboard = r.json()
     async with SessionLocal() as s:
