@@ -54,7 +54,7 @@ async def export_submission(run_id: str):
     try:
         sub = await build_submission(run_id)
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return JSONResponse(sub)
 
 
@@ -63,7 +63,7 @@ async def submit_run(run_id: str):
     try:
         return await submit(run_id)
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/pipeline/llm-assist/{email_id}")

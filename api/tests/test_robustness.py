@@ -4,8 +4,6 @@ exact formats), these would all fail.
 
     uv run pytest api/tests/test_robustness.py -v
 """
-import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -156,10 +154,11 @@ def test_send_bl_request_is_not_escalation():
 
 
 def test_unknown_layout_does_not_call_model_when_disabled(monkeypatch):
+    from unittest.mock import Mock
+
     from app.core.config import settings
     from pipeline import verdict
     from pipeline.readers import DocText
-    from unittest.mock import Mock
 
     monkeypatch.setattr(settings, "enable_llm_fill", False)
     llm = Mock(side_effect=AssertionError("Unexpected paid model call"))

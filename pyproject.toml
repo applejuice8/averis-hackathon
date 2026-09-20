@@ -29,3 +29,13 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.8",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# B008 is how FastAPI declares dependencies; the synonym/regex tables read
+# better on one long line than wrapped.
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008"]
