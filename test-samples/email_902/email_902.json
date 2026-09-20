@@ -1,0 +1,10 @@
+{
+  "email_id": "email_902",
+  "from": "docs@northwindmills.com",
+  "subject": "Draft BL NORTHERN STAR 14 V.NS220 HAMBURG - please check SI vs BL OC 3PLK-88123",
+  "body": "Hi Lukas,\n\nAttached are the Shipping Instruction and the draft Bill of Lading for OC 3PLK-88123 (KRAFTLINER). Please compare the SI against the draft BL and confirm the particulars match before we release.\n\nBest Regards,\nEmma Sorensen\nExport Documentation\nNorthwind Paper Mills Ltd\n8 Tanjong Kling Road\nSingapore 628051",
+  "attachments": [
+    "attachments/email_902_SI.txt",
+    "attachments/email_902_BL.txt"
+  ]
+}

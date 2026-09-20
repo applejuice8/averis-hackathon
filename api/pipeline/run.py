@@ -36,7 +36,7 @@ async def run_pipeline(email_ids: list[str] | None = None, label: str | None = N
                 continue
             rec = emails_repo.to_record(email)
             try:
-                r = await asyncio.to_thread(process_email, rec, settings.resolved_data_dir)
+                r = await asyncio.to_thread(process_email, rec, settings.data_dir_for(email.email_id))
             except Exception as e:
                 r = failed_result(email.email_id, e)
             await results_repo.add(s, run.id, r)

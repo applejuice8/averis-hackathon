@@ -54,6 +54,32 @@ export type ReviewItem = {
   error: string | null;
 };
 
+export type CalendarItem = {
+  email_id: string;
+  date: string;
+  source: string;
+  subject: string;
+  sender: string;
+  category: string | null;
+  status: string | null;
+};
+
+export type GmailAccount = {
+  id: string;
+  google_email: string | null;
+  last_synced_at: string | null;
+  created_at: string | null;
+};
+
+export type GmailPreviewItem = {
+  message_id: string;
+  subject: string;
+  sender: string;
+  date: string;
+  attachments: string[];
+  body: string;
+};
+
 async function get<T>(path: string): Promise<T> {
   const base = process.env.API_URL || (process.env.VERCEL ? "" : "http://localhost:8000");
   if (!base) throw new Error("API_URL must be configured for this deployment.");
@@ -65,8 +91,10 @@ async function get<T>(path: string): Promise<T> {
 export const api = {
   emails: (q?: string) => get<EmailListItem[]>(`/api/emails${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   email: (id: string) => get<EmailDetail>(`/api/emails/${id}`),
+  calendar: () => get<CalendarItem[]>("/api/calendar"),
   runs: () => get<Run[]>("/api/runs"),
   review: () => get<ReviewItem[]>("/api/review"),
+  gmailAccounts: () => get<GmailAccount[]>("/api/gmail/accounts"),
 };
 
 export const COMPARE_FIELDS = [
@@ -78,6 +106,8 @@ export const COMPARE_FIELDS = [
   "container_count",
   "gross_weight_kg",
 ] as const;
+
+export type CompareField = (typeof COMPARE_FIELDS)[number];
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${PUBLIC_API}${path}`, { ...init, signal: AbortSignal.timeout(120000) });

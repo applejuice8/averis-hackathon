@@ -325,3 +325,73 @@ Tests: `uv run pytest api/tests -v` · lint: `uv run ruff check api`.
 Both run on every push, together with `tsc --noEmit` and `next build`,
 and the API job runs with no database and no API key so we keep noticing
 if something starts needing them.
+
+---
+
+## 10. Gmail integration (optional inbox source)
+
+Pull live shipping mail straight from Gmail instead of the static bundle.
+Gmail is just another ingest source: messages land in the same `emails`
+table and their attachments in a **writable** `GMAIL_DATA_DIR`, so the rest
+of the pipeline runs unchanged. Read-only scope — the mailbox is never
+modified. Emails are namespaced `gmail_<messageId>` so they never clash
+with the `email_###` bundle fixtures.
+
+**Flow:** Inbox → **Import from Gmail** → Google consent → **Sync Gmail** →
+new `gmail_*` rows appear → **Run inbox checks** as usual.
+
+### Google Cloud setup
+
+1. **Project** — https://console.cloud.google.com → pick/create a project.
+2. **Enable the Gmail API** — APIs & Services → Library → *Gmail API* → Enable.
+3. **OAuth consent screen** (a.k.a. *Google Auth Platform*) — set User type
+   **External**, fill app name + support email.
+4. **Test users** — add your own Gmail address under **Audience → Test
+   users**. `gmail.readonly` is a *sensitive* scope, so while the app is
+   unverified only test users can consent.
+5. **Scopes** — Data access → **Add or remove scopes** → add
+   `https://www.googleapis.com/auth/gmail.readonly`
+   (direct link: `https://console.cloud.google.com/auth/scopes`).
+6. **OAuth client** — Credentials → Create Credentials → OAuth client ID →
+   **Web application**. Add the redirect URI **exactly**:
+   ```
+   http://localhost:8000/api/auth/google/callback
+   ```
+
+### Configure `.env`
+
+```env
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-secret
+GOOGLE_REDIRECT_URI=http://localhost:8000/api/auth/google/callback
+# WEB_APP_URL=http://localhost:3000     # where callback returns the user
+# GMAIL_DATA_DIR=/data-gmail            # writable attachment store (compose volume)
+```
+
+### Use it
+
+```bash
+docker compose up --build
+# open http://localhost:3000/inbox → Import from Gmail → consent → Sync Gmail
+docker compose exec api uv run python -m pipeline.run   # then process them
+```
+
+Or sync from the API directly:
+
+```bash
+curl -X POST 'http://localhost:8000/api/gmail/sync'
+# optional Gmail search filter:
+curl -X POST 'http://localhost:8000/api/gmail/sync?query=has:attachment+newer_than:7d'
+```
+
+Endpoints: `GET /api/auth/google/start` · `GET /api/auth/google/callback` ·
+`POST /api/gmail/sync` · `GET /api/gmail/accounts` ·
+`DELETE /api/gmail/accounts/{id}`. Default sync query is
+`has:attachment newer_than:30d`; re-syncing is idempotent (upsert on
+`email_id`). The connected account + last-synced time show on the Inbox.
+
+> Redirect URI must match byte-for-byte. For a deployment, add the
+> production `https://…/api/auth/google/callback` URI and set
+> `WEB_APP_URL` / `GOOGLE_REDIRECT_URI` to match. Refresh tokens are stored
+> in `gmail_accounts` in plaintext (hackathon default) — encrypt at rest
+> before pointing this at a real mailbox.

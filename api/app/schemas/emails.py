@@ -1,5 +1,5 @@
 """Emails API payloads — separate from ORM so the wire shape is explicit."""
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from ..db.models import Email, PipelineResult
 
@@ -80,3 +80,21 @@ class ProcessOutcome(BaseModel):
     email_id: str
     status: str
     category: str
+
+
+class EmailCreate(BaseModel):
+    """Manual inbox entry — the fields of the bundle's email_*.json records.
+    Documents arrive as uploaded files, not path strings."""
+    sender: str = ""
+    subject: str = ""
+    body: str = ""
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "EmailCreate":
+        if not (self.sender.strip() or self.subject.strip() or self.body.strip()):
+            raise ValueError("sender, subject or body must be non-empty")
+        return self
+
+
+class EmailCreated(BaseModel):
+    email_id: str

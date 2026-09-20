@@ -88,4 +88,4 @@ async def llm_assist_email(email_id: str, s: AsyncSession = Depends(get_db)):
     rec = emails_repo.to_record(email)
     from starlette.concurrency import run_in_threadpool
 
-    return await run_in_threadpool(llm_assist, rec, settings.resolved_data_dir)
+    return await run_in_threadpool(llm_assist, rec, settings.data_dir_for(email.email_id))
