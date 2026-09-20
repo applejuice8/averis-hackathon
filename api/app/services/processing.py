@@ -2,6 +2,12 @@
 
 Every attempt stores a result — a crash or timeout becomes a visible FAILED
 row that a reviewer can retry, never a silent loss.
+
+Scope note: the in-flight guard below is per-process. It relies on the API
+running as a single instance (the deploy script pins --max-instances 1), which
+makes it effectively global for this deployment. Running more than one instance
+or worker would let two replicas each start a paid attempt for the same email;
+that would need a database-backed claim instead.
 """
 import asyncio
 import contextlib
@@ -16,6 +22,7 @@ from ..repositories import runs as runs_repo
 ADHOC_RUN_LABEL = "Uploads & retries"
 PROCESS_TIMEOUT_S = 90
 
+# per-process only; see the scope note in the module docstring
 _in_flight: dict[str, asyncio.Lock] = {}
 
 
