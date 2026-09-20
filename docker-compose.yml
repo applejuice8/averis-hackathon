@@ -9,9 +9,13 @@ services:
     env_file: .env               # NEON_DB_URI, OPENROUTER_API_KEY
     environment:
       DATA_DIR: /data
+      GMAIL_DATA_DIR: /data-gmail
+      UPLOAD_DATA_DIR: /data-uploads
       SCORER_URL: http://scorer:8000
     volumes:
       - ./docs-provided/problem-statement/sdoc-hackathon-bundle:/data:ro
+      - gmail-data:/data-gmail
+      - upload-data:/data-uploads
     ports:
       - "8000:8000"
 
@@ -40,3 +44,7 @@ services:
       - ./docs-provided/problem-statement/sdoc-hackathon-docker/data_v2/ground_truth.json:/secrets/ground_truth.json:ro
     ports:
       - "8080:8000"
+
+volumes:
+  gmail-data:                    # writable store for Gmail-ingested attachments
+  upload-data:                   # writable store for manually uploaded documents

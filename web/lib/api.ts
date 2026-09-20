@@ -65,6 +65,13 @@ export type CalendarItem = {
   status: string | null;
 };
 
+export type GmailAccount = {
+  id: string;
+  google_email: string | null;
+  last_synced_at: string | null;
+  created_at: string | null;
+};
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${API}${path}`, { cache: "no-store" });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
@@ -77,6 +84,7 @@ export const api = {
   calendar: () => get<CalendarItem[]>("/api/calendar"),
   runs: () => get<Run[]>("/api/runs"),
   review: () => get<ReviewItem[]>("/api/review"),
+  gmailAccounts: () => get<GmailAccount[]>("/api/gmail/accounts"),
 };
 
 export const COMPARE_FIELDS = [

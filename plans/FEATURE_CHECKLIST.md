@@ -24,6 +24,11 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   `pipeline_results` table · 🟢
 - [x] Human review actions persisted (`reviews` table + result mutation)
   `api/app/services/review.py` · 🟢 POST verified
+- [x] Manual email intake — dedicated `/inbox/new` page: field-by-field
+  form or .txt/.json sample-format import, with real document uploads
+  (files persist to `UPLOAD_DATA_DIR`, paired by content — no path/name
+  conventions needed); ids assigned `manual_*` so uploads can't overwrite
+  bundle records `POST /api/emails` + `web/app/inbox/new/` · 🧪
 - [ ] Alembic migrations (currently `create_all` on startup)
 - [ ] Multi-run comparison view (diff between two runs)
 
@@ -127,6 +132,8 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   `api/app/main.py` · 🧪 🟢 (`emails_ingested: 520` live)
 - [x] `GET /api/emails` — list joined to latest result; filters
   `queue` / `status` / `q` · 🟢
+- [x] `POST /api/emails` — multipart intake: fields + document files,
+  10 MB cap per file, assigns `manual_*` id · 🧪
 - [x] `GET /api/emails/{id}` — detail + latest result (incl. `result_id`) · 🟢
 - [x] `POST /api/pipeline/run` (background task; optional subset + label) · 🟢
 - [x] `GET /api/runs`, `GET /api/runs/{id}` · 🟢
@@ -143,6 +150,10 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 
 - [x] Dashboard `/` — queue counts, triage stats · 🟢
 - [x] Inbox `/inbox` — full list, category/status/search filters · 🟢
+- [x] Inbox pagination — 10 per page, numbered window + prev/next,
+  filters/search preserved across pages · 🟢
+- [x] "Add email" subpage `/inbox/new` — manual fields, document attach
+  chips, sample-format file import · 🟢
 - [x] Email detail `/emails/[id]` — verdict card, sender, rationale · 🟢
 - [x] SI-vs-BL diff table — 7 rows, mismatches highlighted with both
   values side by side · 🟢 (renders email_004's real mismatch)
@@ -203,7 +214,7 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 
 ## 13. Testing & quality
 
-**64 tests, all green, none of them touching a database or the network.**
+**73 tests, all green, none of them touching a database or the network.**
 
 - [x] 14 golden-fixture tests: classification, all 4 escalation reasons,
   exact defect fields, doc-type detection, synonym extraction,
@@ -215,7 +226,8 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 - [x] 9 LLM-client tests — fallback chain, cache hit/miss, corrupt cache
   entry, repair retry, missing key `api/tests/test_llm.py` · 🧪
 - [x] 4 health-endpoint tests via `TestClient`, no database needed · 🧪
-- [x] 5 attachment-preview + 15 review-action tests · 🧪
+- [x] 9 attachment preview/storage + 15 review-action tests · 🧪
+- [x] 5 manual-intake schema tests `api/tests/test_emails.py` · 🧪
 - [x] Tests need no DB or network (file fixtures only) — CI runs them with
   `NEON_DB_URI` and `OPENROUTER_API_KEY` unset to keep it that way
 - [x] Web typecheck + build in CI (`tsc --noEmit`, `pnpm build`) · 🟢

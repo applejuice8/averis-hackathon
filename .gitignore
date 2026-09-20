@@ -12,8 +12,10 @@ wheels/
 
 .DS_STORE
 
-# Data bundle (symlink/mount)
+# Data bundle (symlink/mount) + writable ingest dirs
 data
+data-gmail/
+data-uploads/
 submission*.json
 
 # LLM response cache

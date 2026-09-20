@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     enable_llm_fill: bool = False
     enable_vision_ocr: bool = False
 
+    # gmail ingest (writable, separate from the read-only provided bundle)
+    gmail_data_dir: str = "data-gmail"
+    # manual intake uploads (writable; attached documents land here)
+    upload_data_dir: str = "data-uploads"
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
+    web_app_url: str = "http://localhost:3000"
+
     @property
     def text_model_chain(self) -> list[str]:
         return _chain(self.text_model, self.text_model_fallbacks)
@@ -74,6 +83,29 @@ class Settings(BaseSettings):
         if os.path.isabs(self.data_dir):
             return self.data_dir
         return str(REPO_ROOT / self.data_dir)
+
+    @property
+    def resolved_gmail_data_dir(self) -> str:
+        """Writable dir for Gmail-ingested emails/attachments; anchors at repo root."""
+        if os.path.isabs(self.gmail_data_dir):
+            return self.gmail_data_dir
+        return str(REPO_ROOT / self.gmail_data_dir)
+
+    @property
+    def resolved_upload_data_dir(self) -> str:
+        """Writable dir for manually-uploaded emails/attachments."""
+        if os.path.isabs(self.upload_data_dir):
+            return self.upload_data_dir
+        return str(REPO_ROOT / self.upload_data_dir)
+
+    def data_dir_for(self, email_id: str) -> str:
+        """Bundle emails read from the read-only mount; ingested or uploaded
+        emails (gmail_, manual_) keep their attachments in writable dirs."""
+        if email_id.startswith("gmail_"):
+            return self.resolved_gmail_data_dir
+        if email_id.startswith("manual_"):
+            return self.resolved_upload_data_dir
+        return self.resolved_data_dir
 
 
 settings = Settings()
