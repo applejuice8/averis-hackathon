@@ -29,7 +29,7 @@ def test_full_runs_only_see_dataset_emails():
     sql = _sql(emails_repo.list_all_statement(["email_004"], "dataset"))
     assert "emails.source = 'dataset'" in sql
     assert "emails.email_id IN ('email_004')" in sql
-    assert "source" not in _sql(emails_repo.list_all_statement(None, None))
+    assert "WHERE" not in _sql(emails_repo.list_all_statement(None, None))
 
 
 def test_to_record_matches_the_inbox_json_shape():

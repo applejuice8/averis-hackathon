@@ -2,7 +2,6 @@
 from sqlalchemy import delete, desc, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import load_only
 
 from ..db.models import Email, PipelineResult, Review
 
@@ -26,14 +25,7 @@ def to_record(email: Email) -> dict:
 
 
 def list_all_statement(email_ids: list[str] | None, source: str | None):
-    # `source` is filter-only metadata; to_record() never reads it, so it's
-    # deferred rather than selected on every batch/subset load.
-    stmt = (
-        select(Email)
-        .options(load_only(Email.email_id, Email.sender, Email.subject,
-                           Email.body, Email.attachments, Email.ingested_at))
-        .order_by(Email.email_id)
-    )
+    stmt = select(Email).order_by(Email.email_id)
     if source is not None:
         stmt = stmt.where(Email.source == source)
     if email_ids:
