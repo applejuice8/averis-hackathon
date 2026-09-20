@@ -47,7 +47,7 @@ async def gmail_sync(query: str | None = None, s: AsyncSession = Depends(get_db)
     try:
         n = await gmail_ingest(query=query)
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return GmailSyncResult(synced=n)
 
 
