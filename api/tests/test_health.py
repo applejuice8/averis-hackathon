@@ -13,7 +13,7 @@ API_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API_DIR))
 
 from app import main  # noqa: E402
-from app.core.config import settings  # noqa: E402
+from app.core.config import Settings, settings  # noqa: E402
 from app.db import session as db_session  # noqa: E402
 
 
@@ -71,3 +71,40 @@ def test_never_leaks_the_connection_string(client, monkeypatch):
 
     monkeypatch.setattr(main, "_database_health", broken)
     assert "hunter2" not in client.get("/health").text
+
+
+def test_livez_needs_nothing(client, monkeypatch):
+    monkeypatch.setattr(db_session, "SessionLocal", None)
+    r = client.get("/livez")
+
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+
+def test_reports_write_protection_and_run_executor(client, monkeypatch):
+    async def reachable():
+        return {"ok": True, "emails_ingested": 0}
+
+    monkeypatch.setattr(main, "_database_health", reachable)
+    monkeypatch.setattr(settings, "demo_passcode", "s3cret-pass")
+    monkeypatch.setattr(settings, "run_executor", "cloudrun-job")
+    r = client.get("/health")
+
+    assert r.json()["writes_protected"] is True
+    assert r.json()["run_executor"] == "cloudrun-job"
+    assert "s3cret-pass" not in r.text
+
+
+def test_writes_are_reported_open_without_a_passcode(client, monkeypatch):
+    async def reachable():
+        return {"ok": True, "emails_ingested": 0}
+
+    monkeypatch.setattr(main, "_database_health", reachable)
+    assert client.get("/health").json()["writes_protected"] is False
+
+
+def test_cors_origins_and_uploads_root_come_from_settings(tmp_path):
+    s = Settings(cors_origins="https://web.example, http://localhost:3000", data_dir=str(tmp_path))
+
+    assert s.cors_origin_list == ["https://web.example", "http://localhost:3000"]
+    assert s.uploads_root == tmp_path / "uploads"

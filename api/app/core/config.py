@@ -54,6 +54,24 @@ class Settings(BaseSettings):
     enable_llm_fill: bool = False
     enable_vision_ocr: bool = False
 
+    # demo access: an empty passcode leaves writes open (local dev only)
+    demo_passcode: str = ""
+    cors_origins: str = "http://localhost:3000"
+
+    # where full pipeline runs execute: "inline" (api process) or
+    # "cloudrun-job" (a Cloud Run Job execution per run)
+    run_executor: str = "inline"
+    gcp_project_id: str = ""
+    gcp_region: str = ""
+    worker_job: str = "sdoc-worker"
+
+    # "gcp-id-token" when the scorer is an IAM-private Cloud Run service
+    scorer_auth: str = "none"
+
+    # live-intake files land in DATA_DIR/UPLOADS_SUBDIR/<email_id>/
+    uploads_subdir: str = "uploads"
+    log_format: str = "text"  # "json" => Cloud Logging structured lines
+
     @property
     def text_model_chain(self) -> list[str]:
         return _chain(self.text_model, self.text_model_fallbacks)
@@ -74,6 +92,14 @@ class Settings(BaseSettings):
         if os.path.isabs(self.data_dir):
             return self.data_dir
         return str(REPO_ROOT / self.data_dir)
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def uploads_root(self) -> Path:
+        return Path(self.resolved_data_dir) / self.uploads_subdir
 
 
 settings = Settings()
