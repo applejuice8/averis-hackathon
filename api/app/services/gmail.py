@@ -33,6 +33,8 @@ def _client_config() -> dict:
 def _flow(state: str | None = None) -> Flow:
     flow = Flow.from_client_config(_client_config(), scopes=SCOPES, state=state)
     flow.redirect_uri = settings.google_redirect_uri
+    # confidential client: skip PKCE so the stateless callback needs no stored verifier
+    flow.autogenerate_code_verifier = False
     return flow
 
 

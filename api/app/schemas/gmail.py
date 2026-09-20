@@ -24,3 +24,16 @@ class GmailAccountView(BaseModel):
 
 class GmailSyncResult(BaseModel):
     synced: int
+
+
+class GmailPreviewItem(BaseModel):
+    message_id: str
+    subject: str
+    sender: str
+    date: str
+    attachments: list[str]
+    body: str
+
+
+class GmailSyncRequest(BaseModel):
+    message_ids: list[str]
