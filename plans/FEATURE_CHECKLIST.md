@@ -35,8 +35,12 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
 ## 2. Email classification (5 queues)
 
 - [x] Rules-first classifier → BL_COMPARISON / SI_REQUEST / INVOICE_QUERY /
-  GENERAL / SPAM `api/pipeline/classify.py` · 🧪 🟢 (macro-F1 1.0)
-- [x] `decided_by` marker (`rule` / `llm`) for cost diagnostics
+  GENERAL `api/pipeline/classify.py` · 🧪
+- [x] SPAM queue → PyTorch model seam `api/pipeline/spam.py`; the old
+  domain-blocklist/regex rules were removed (they memorised the bundled
+  junk domains). Artifact lands with the feat/ml model work — until then
+  the gate is a no-op and SPAM is unreachable by rules alone
+- [x] `decided_by` marker (`rule` / `llm` / `ml`) for cost diagnostics
 - [x] Attachment-name + coded-subject cues (e.g. `AFRT - LONG BEACH_US`,
   `*_SI.*` / `*_BL.*` names)
 - [x] Filename-independent doc pairing — SI/BL identified by detected
@@ -142,6 +146,8 @@ Legend for verification: 🟢 verified live · 🧪 covered by tests ·
   override_fields · 🟢
 - [x] `GET /api/pipeline/llm-assist/{email_id}` — on-demand AI view
   (classify + extract + OCR; never persisted) · 🟢
+- [x] `POST /api/spam/detect` — standalone spam check; 503 while no model
+  artifact exists · 🧪
 - [x] CORS for the web origin `api/app/main.py` · 🟢
 - [ ] Auth / reviewer identity beyond a free-text field
 - [ ] Rate limiting / request logging middleware

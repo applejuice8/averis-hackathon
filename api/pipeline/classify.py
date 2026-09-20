@@ -1,22 +1,14 @@
 """Stage 1 — email triage.
 
-Two tiers: deterministic rules first (free, auditable, feeds decided_by='rule'),
+Learned spam gate first (pipeline/spam.py — no-op until the model artifact
+exists), then deterministic rules (free, auditable, feeds decided_by='rule'),
 LLM fallback only when rules are unconfident.
 """
 import re
 
-CATEGORIES = ["BL_COMPARISON", "SI_REQUEST", "INVOICE_QUERY", "GENERAL", "SPAM"]
+from .spam import predict_spam
 
-SPAM_DOMAINS = {
-    "prize-claims.info", "parcel-track.co", "webmail-verify.co",
-    "logistics-deals.biz", "crypto-invest.net", "secure-mailbox.org",
-}
-SPAM_RE = re.compile(
-    r"(congratulations|you have won|gift card|claim now|verify account|"
-    r"storage.*(full|limit)|undelivered messages|bitcoin|crypto invest|"
-    r"hot singles|weird trick|bank details|parcel.*(hold|fee))",
-    re.I,
-)
+CATEGORIES = ["BL_COMPARISON", "SI_REQUEST", "INVOICE_QUERY", "GENERAL", "SPAM"]
 
 SI_TERM = r"\b(?:si|s\.i\.|shipping instruction)\b"
 BL_TERM = r"\b(?:bl|b/l|bill of lading)\b"
@@ -65,12 +57,12 @@ def classify(email) -> tuple[str, str, str]:
     subject = email.get("subject") or ""
     body = email.get("body") or ""
     hay = subject + "\n" + body
-    domain = sender.rsplit("@", 1)[-1]
     att_kinds = _att_kinds(email.get("attachments"))
 
-    # 1. spam
-    if domain in SPAM_DOMAINS or SPAM_RE.search(hay):
-        return "SPAM", "rule", "spam sender/subject pattern"
+    # 1. spam — learned model; None when no artifact is loaded
+    spam = predict_spam(email)
+    if spam is not None and spam.spam:
+        return "SPAM", "ml", f"spam model p={spam.score:.2f}"
 
     # 2. SI+BL attachments or explicit compare request -> doc-check queue
     if att_kinds == {"SI", "BL"} or COMPARE_INTENT_RE.search(hay):
