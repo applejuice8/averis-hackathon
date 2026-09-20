@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-20
 - **Branch:** `feat/cloud-deploy` (cut from `feat/reliability-and-ci` @ `9e8e81c`)
-- **Status:** approved in brainstorming; awaiting written-spec review
+- **Status:** revised for Vercel and cost-control review. [Deployment amendment](../plans/2026-09-20-vercel-cost-control-amendment.md) is authoritative for conflicting details.
 - **Deadline driver:** preliminary submission closes **2026-09-22 12:00 (MYT)**; the
   rules require a *publicly accessible, functional* prototype link during judging and
   *meaningful* use of cloud infrastructure.
@@ -11,11 +11,11 @@
 
 ### Goals
 
-1. A public, always-reachable demo URL on **Google Cloud Run** that runs the existing
+1. A public demo URL on **Vercel**, backed by **Google Cloud Run** that runs the existing
    pipeline, UI, and human-review flow end to end.
-2. **Budget ceiling of US$5** for the whole competition period, enforced by
-   scale-to-zero, hard instance caps, and a budget alert.
-3. The same container images run locally (docker compose) and in the cloud.
+2. **Spending target of US$5**, with scale-to-zero, workload admission, budget alerts,
+   and a separately selected monthly billing-disconnect threshold. This is not an exact cap.
+3. The same backend images run locally and in GCP; Vercel builds the web natively.
 4. Public read access for judges; every write or quota-spending action requires a
    shared reviewer passcode.
 5. The answer key (`ground_truth.json`) leaves the public repo; the self-evaluation
@@ -62,10 +62,10 @@
 
 ```
                  Judges / team (browser)
-                          │ HTTPS  (*.run.app)
+                          │ HTTPS (*.vercel.app)
                           ▼
    ┌───────────────────────────────────────────────┐
-   │ sdoc-web   Cloud Run service, public          │
+   │ sdoc-web   Vercel Next.js, public             │
    │  • SSR pages fetch API_URL at request time    │
    │  • /api/*  → route-handler proxy (runtime)    │
    │      cookie sdoc_reviewer → X-Demo-Passcode   │
@@ -117,39 +117,25 @@ user, or password. Mapping:
 
 ### GCP project
 
-A new dedicated project (`sdoc-verifier-<6 random chars>`) linked to the operator's
-open billing account. No existing project is modified.
+Use existing `averis-email-system` (969206696114), region `asia-southeast1`. Pass the project explicitly on every command. Refuse a disabled or unexpected billing link; never automatically relink.
 
-## 4. Budget design (US$5 ceiling)
+## 4. Cost controls and limits
 
-Budgets only notify; they do not stop spend. The real guardrails are scale-to-zero and
-hard caps.
+Use the [deployment amendment](../plans/2026-09-20-vercel-cost-control-amendment.md) for the selected topology,
+cost analysis and guard procedure. The under-US$1 estimate and guaranteed-US$5
+ceiling are withdrawn. Scale-to-zero removes idle compute costs; maximum instance
+counts do not cap spending over time or concurrent job executions.
 
-| Resource | Setting | Why it is cheap |
-|---|---|---|
-| `sdoc-web` | request-based billing, min 0, **max 2**, 1 vCPU / 512 MiB, concurrency 80, startup CPU boost | idle = $0; traffic sits in the Cloud Run free tier |
-| `sdoc-api` | request-based billing, min 0, **max 2**, 1 vCPU / 1 GiB, timeout 300 s, gen2 (needed for the GCS mount) | same; no always-on CPU because runs moved to the job |
-| `sdoc-scorer` | min 0, **max 1**, 1 vCPU / 512 MiB, IAM-only | called a few times a day |
-| `sdoc-worker` | job: 1 task, parallelism 1, `--max-retries 1`, timeout 1800 s, 1 vCPU / 1 GiB | billed only while running (~1–2 min per full run) |
-| Keep-warm | uptime checks on web `/` and api `/health` every 5 min from 3 regions | ~100k requests/month, well inside the 2M free requests; the dashboard SSR also warms the api |
-| Artifact Registry | cleanup policy: keep the 3 most recent versions per image | web image shrinks to ~150 MB, so storage stays near the 0.5 GB free allowance |
-| Cloud Storage | uploads bucket, lifecycle delete after 30 days | KB–MB of data |
-| Secret Manager | 4 secrets, 1 active version each | within the 6-version free allowance |
-| Builds | GitHub Actions runners (free for public repos), not Cloud Build | $0 |
-| Networking | default `*.run.app` URLs; no load balancer, no VPC connector | avoids ~$18/month fixed costs |
-| Budget | **$5**, alerts at 50 %, 90 %, 100 % actual and 100 % forecasted, scoped to the project | early warning |
-| Kill switch (added 2026-09-20 at the user's request) | a **second** budget at **$10** publishes to Pub/Sub; a Cloud Function unlinks the billing account when reported cost reaches it | a real hard stop, deliberately set at 2× the alert budget so it can only fire when something is badly wrong |
+Vercel hosts the web, subject to plan eligibility/limits. GCP hosts API (max 2),
+private scorer (max 1), and worker (one task per execution, plus a separate global
+admission limit). Keep minimum instances zero. Include storage, network, secrets,
+function builds and external providers in the estimate.
 
-**Expected spend through judging: under US$1.** Cold starts (3–6 s for web + api
-together) are the accepted trade-off; the uptime checks keep instances warm most of
-the time.
-
-**On the kill switch.** Disabling billing stops every service at once and needs a
-manual relink to recover, so firing it during judging would be worse than the
-overspend it prevents. It is therefore armed at $10, not $5, and budget data lags
-real spend by up to several hours — it is a backstop, not a rate limiter. The
-structural caps (scale-to-zero, max instances 2/2/1, one job task) remain the
-primary protection.
+Deploy/test/arm the project-scoped monthly budget function **before app deployment**.
+The user selected **RM40 per month in MYR**; use Vercel Hobby for this noncommercial demo. Billing
+notifications are delayed: disconnect can overshoot and can interrupt/delete
+resources. Native Cloud Run spend caps are an optional additional preview control.
+No ordinary deployment may reattach billing after a shutdown.
 
 ## 5. Components
 
@@ -213,23 +199,17 @@ New settings (`api/app/core/config.py`):
 - The passcode itself is the cookie value. Acceptable for a demo passcode that is
   published to judges; documented as a limitation.
 
-### 5.4 web image and proxy (`web/`)
+### 5.4 Vercel web and runtime proxy (`web/`)
 
-- `next.config.ts`: remove `rewrites()`; add `output: "standalone"`.
-- New `web/app/api/[...path]/route.ts`: exports `GET/POST/PUT/PATCH/DELETE`,
-  `dynamic = "force-dynamic"`. Forwards method, query string, `content-type`, and body
-  (streamed, `duplex: "half"`) to `${process.env.API_URL}/api/<path>`, reading
-  `API_URL` at request time. Adds `X-Demo-Passcode` from the `sdoc_reviewer` cookie.
-  Passes status and body back unchanged. A 120 s upstream timeout (above intake's 90 s
-  processing budget, matching `request()` in `web/lib/api.ts`) returns a JSON 504.
-- New `web/app/healthz/route.ts` → `200 {"ok": true}`.
-- New `web/app/auth/reviewer/route.ts` (§5.3).
-- `package.json`: `"packageManager": "pnpm@10.34.5"` (lockfile v9, matches CI's pnpm 10).
-- Dockerfile: stages `deps` (corepack, `pnpm install --frozen-lockfile`), `build`
-  (`pnpm build`), `runtime` (`node:22-alpine`, user `node`, copies
-  `.next/standalone`, `.next/static`, `public`; `ENV HOSTNAME=0.0.0.0 PORT=3000`;
-  `CMD ["node", "server.js"]`). Cloud Run deploys with `--port 3000`.
-- SSR fetches in `web/lib/api.ts` already read `API_URL` at runtime; no change.
+Native Next.js build, project root `web`, Singapore region, server-only `API_URL`.
+The checked-in route handler reads API_URL at request time, forwards only selected
+headers, adds the reviewer cookie as the API passcode, requires same-origin writes,
+and returns bounded gateway errors. `/healthz` does not query the API or database.
+
+Vercel's 4.5 MB request/response limit requires the proxy's conservative 4 MB bound;
+intake attachments are limited to 3 MiB combined. Optional local Docker builds may
+set `WEB_STANDALONE=1`; no GCP web service/image is deployed. See the amendment for
+Hobby eligibility, paid-plan spend controls, previews and CI-gated promotion.
 
 ### 5.5 Pipeline run execution
 
@@ -263,7 +243,7 @@ New settings (`api/app/core/config.py`):
   EXISTS source ...` after `create_all`, because `create_all` does not alter existing
   tables.
 - **`POST /api/intake`** (multipart: `sender`, `subject`, `body`, `files[]`):
-  - Validation → **422** with a specific message: 0–4 files; ≤ 5 MB each and ≤ 10 MB
+  - Validation → **422** with a specific message: 0–4 files; ≤ 3 MiB each and ≤ 3 MiB
     total; extension in {`.txt`, `.pdf`, `.docx`, `.xlsx`}; content sniff (`%PDF-`
     for pdf, `PK\x03\x04` for docx/xlsx, valid UTF-8 for txt); filename reduced to
     `[A-Za-z0-9._-]`, max 80 chars, de-duplicated; subject ≤ 300 chars, body ≤ 20 000.
@@ -334,7 +314,6 @@ never echoes values. The assistant does not read `.env` or handle secret values.
 
 | SA | Roles (scoped) |
 |---|---|
-| `sdoc-web` | none |
 | `sdoc-api` (also the worker job's identity) | `secretmanager.secretAccessor` on its 3 secrets; `run.invoker` on `sdoc-scorer`; `run.jobsExecutorWithOverrides` on `sdoc-worker`; `storage.objectUser` on the uploads bucket; `logging.logWriter` |
 | `sdoc-scorer` | `secretmanager.secretAccessor` on `GROUND_TRUTH` |
 | `sdoc-deployer` | `artifactregistry.writer` on the repo; `run.developer` (project); `iam.serviceAccountUser` on the three runtime SAs |
@@ -356,8 +335,8 @@ abuse cost.
 
 ## 7. Operations
 
-- **Uptime checks** (`gcloud monitoring uptime create`): `https://<web>/` and
-  `https://<api>/health`, period 5 min, regions `ASIA_PACIFIC`, `EUROPE`,
+- **Uptime checks** (`gcloud monitoring uptime create`): `https://<web>/healthz` and
+  `https://<api>/livez`, period 5 min, regions `ASIA_PACIFIC`, `EUROPE`,
   `USA_VIRGINIA`.
 - **Alerting:** email notification channel (address passed to bootstrap as
   `ALERT_EMAIL`); policy fires when either check fails 2 consecutive periods.
@@ -375,13 +354,15 @@ abuse cost.
 | Script | Does |
 |---|---|
 | `scripts/gcp/neon-region.sh` | prints Neon provider/region + suggested GCP region only |
-| `scripts/gcp/bootstrap.sh` | project + billing link, enable APIs (run, artifactregistry, secretmanager, iamcredentials, storage, monitoring, billingbudgets), Artifact Registry repo `sdoc` + cleanup policy, uploads bucket + lifecycle, SAs + IAM, empty secrets, WIF pool/provider, budget, notification channel, uptime checks + alert policy |
+| `scripts/gcp/bootstrap.sh` | validate existing project/billing (never relink), enable APIs (run, artifactregistry, secretmanager, iamcredentials, storage, monitoring, billingbudgets), Artifact Registry repo `sdoc` + cleanup policy, uploads bucket + lifecycle, SAs + IAM, empty secrets, WIF pool/provider, budget, notification channel, uptime checks + alert policy |
 | `scripts/gcp/set-secrets.sh` | operator-only secret population (§6) |
-| `scripts/gcp/deploy.sh` | build + push images tagged with the git SHA, deploy scorer → api → web (api needs the scorer URL; web needs the api URL), create/update `sdoc-worker` with the same secrets, uploads mount, and `SCORER_URL`/`SCORER_AUTH` as the api, set `CORS_ORIGINS`. Used by humans and CI |
+| `scripts/gcp/deploy.sh` | build + push images tagged with the git SHA, deploy scorer → worker → api; Vercel web is a separate native build after backend readiness, create/update `sdoc-worker` with the same secrets, uploads mount, and `SCORER_URL`/`SCORER_AUTH` as the api, set `CORS_ORIGINS`. Used by humans and CI |
 | `scripts/gcp/smoke.sh` | web `/` 200; `/health` → `writes_protected: true`; `POST /api/pipeline/run` without passcode → 401; `/api/emails` returns 520+ rows |
 | `scripts/gcp/demo-reset.sh` | §5.8 |
 
 ## 9. CI/CD
+
+**Amended:** native web build/proxy tests and API/guard/image checks all gate deployment. Vercel promotion is separate from GCP WIF. See [the amendment](../plans/2026-09-20-vercel-cost-control-amendment.md); historical container-only workflow details below do not define Vercel deployment.
 
 - **`ci.yml`** (existing, every push/PR) gains job `images`: build api and web images
   (no push), then container smoke:
@@ -419,18 +400,17 @@ CI container smoke covers D1, D2, and D5. `smoke.sh` covers the deployed system.
 4. A write while locked is refused; unlock with the passcode; confirm one case.
 5. Intake with the edited sample `.txt` pair → `MISMATCH` on the edited field.
 6. Intake with the image-only PDF → `NEEDS_REVIEW / unreadable`; AI assist reads it.
-7. Start a full run from the Runs page → it completes and the score appears.
+7. Start a full run from the Runs page → it completes; explicitly invoke/verify benchmark scoring. Unscored runs must be labelled correctly.
 8. Intake of a `.txt` file renamed to `.pdf` is rejected with a 422 message; Reprocess
    on `email_004` adds a new result with the same verdict. (A `FAILED` result cannot be
    produced from valid UI input; the FAILED → 201 → Retry path is covered by
    `test_intake.py`.)
 9. `demo-reset.sh` restores the clean state.
-10. `gcloud billing budgets list` shows the $5 budget; each service shows its max
-    instances.
+10. Verify the selected monthly guard amount/currency/project, armed function, retry/trigger/IAM, and service caps. Record the actual Vercel/GCP deployment URLs.
 
 ## 11. Rollout order
 
-The live link is the critical path; everything after step 6 can land incrementally.
+The live link is the critical path. Install, test and arm the selected billing guard before the first app deploy; do not postpone it until after launch.
 
 1. Team merges PR #1 and PR #2 into `main`; this branch rebases onto `main`.
 2. Answer key out of the repo; compose reads `./secrets/`.
@@ -439,7 +419,7 @@ The live link is the critical path; everything after step 6 can land incremental
 4. Reviewer passcode (api dependency + web unlock).
 5. Executor abstraction, worker CLI with resume, scorer ID token.
 6. Operator runs `neon-region.sh` → `bootstrap.sh` → `set-secrets.sh`; first
-   `deploy.sh`; `sdoc-worker seed` → **live URL** (target 2026-09-21 midday).
+   `deploy.sh`; `sdoc-worker seed`; Vercel native deploy → **live URL** (target 2026-09-21 midday).
 7. Live intake + `source` column + reprocess/Retry + sample kit.
 8. Structured logging; uptime checks and alert (bootstrap re-run).
 9. `ci.yml` image smoke + `deploy.yml`; repo admin sets the four variables.
@@ -453,10 +433,10 @@ The live link is the critical path; everything after step 6 can land incremental
 | Cold start on a judge's first click | uptime-check keep-warm; startup CPU boost; small images |
 | OpenRouter free tier (20 req/min, 50/day without credits) exhausted during judging | assists stay opt-in and passcode-gated; response cache; runs are deterministic without the model |
 | Cloud Storage FUSE semantics (no atomic rename, eventual listing) | intake writes each file once, then reads it; no renames, no listing-dependent logic |
-| Passcode leaks beyond judges | rotate via `set-secrets.sh` + redeploy; max-instance caps bound cost |
+| Passcode leaks beyond judges | rotate via `set-secrets.sh` + redeploy; admission limits, quotas and cost controls reduce exposure |
 | Proxy change conflicts with teammates' web work | small, isolated files; PR description calls out the replaced `rewrites()` |
 | Repo-admin access for Actions variables not available in time | `deploy.sh` works from a laptop; CI deploy is additive |
-| Budget alert arrives after spend | caps make runaway spend structurally impossible beyond a few dollars/month |
+| Budget alert arrives after spend | overshoot remains possible; use admission limits, delayed billing disconnect and an optional native service cap. No exact cost guarantee |
 
 ## 13. Follow-up: ML triage sub-project (next spec)
 

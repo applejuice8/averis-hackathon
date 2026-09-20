@@ -28,3 +28,6 @@ secrets/*
 
 # pytest scratch (tests run with --basetemp=.pytest-tmp)
 .pytest-tmp/
+
+# local pnpm store (created when pnpm runs with a repo-local store)
+.pnpm-store/

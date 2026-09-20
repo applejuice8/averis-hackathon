@@ -15,7 +15,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv run ruff check api
+      - run: uv run ruff check api scripts/gcp/killswitch
+      - name: Billing guard deployment safety (offline)
+        shell: pwsh
+        run: ./scripts/gcp/test-cost-guard.ps1
       # no NEON_DB_URI / OPENROUTER_API_KEY on purpose: the suite must pass
       # with no database and no model behind it
       - run: uv run pytest api/tests -q
@@ -41,3 +44,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
       - run: pnpm build
+      - run: pnpm test:proxy

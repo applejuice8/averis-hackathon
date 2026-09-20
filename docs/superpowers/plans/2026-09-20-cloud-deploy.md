@@ -1,10 +1,10 @@
 # Cloud Deployment, Demo Access & Live Intake Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Revised 2026-09-20:** Read [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md) first. It is authoritative for deployment/costs. Tasks 1–5 were complete at `51fb6ab` (90 passing tests). The Vercel proxy is implemented locally; the RM40 billing guard is now deployed and armed. See `docs/cost-guard-status.md`. The web/backend application remains undeployed. Keep backend implementation detail below, but do not overwrite the newer files with historical snippets. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Put SDOC Verifier on a public Google Cloud Run URL under a US$5 budget, with passcode-protected writes, a private scorer, live "try your own email" intake with retries, monitoring, and deploy-on-merge.
+**Goal:** Put SDOC Verifier on Vercel with a GCP Cloud Run backend, low fixed costs, a user-selected monthly billing-disconnect threshold, reviewer access, live intake, and verified deployment gates.
 
-**Architecture:** The same three images run under docker compose and on Cloud Run. `sdoc-web` (Next.js standalone) proxies `/api/*` to `sdoc-api` (FastAPI) at request time and turns a reviewer cookie into an `X-Demo-Passcode` header. `sdoc-api` scales to zero and hands full pipeline runs to a Cloud Run Job (`sdoc-worker`, same image). It calls the IAM-private `sdoc-scorer` with a metadata-server ID token. Uploads live in a Cloud Storage bucket mounted at `/data/uploads`, so the existing file readers work unchanged.
+**Architecture:** Vercel builds `web/` natively and proxies browser API calls at request time. GCP hosts the API, private scorer and worker job; Neon and GCS remain. The billing guard must be armed before public deployment. See the amendment for the revised topology.
 
 **Tech Stack:** Python 3.13 + uv, FastAPI, SQLAlchemy async + Neon Postgres, httpx, pytest/pytest-asyncio, Next.js 15 + React 19 + pnpm 10, Docker, bash + gcloud, Google Cloud Run (services + jobs), Artifact Registry, Secret Manager, Cloud Storage, Cloud Monitoring, Cloud Billing budgets, GitHub Actions + Workload Identity Federation.
 
@@ -13,18 +13,18 @@
 ## Global Constraints
 
 - **Repo / branch:** `C:\Users\aloys\Averis Hackathon\secret-hack`, branch `feat/cloud-deploy`. Run every command from the repo root in **Git Bash** unless a step says otherwise.
-- **Commit identity:** repo-local config (set in Task 1). Every commit message ends with a blank line and `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`. Subjects are imperative sentence case, matching history (e.g. "Add …", "Keep …").
+- **Commit identity:** preserve the configured author; attribute only actual contributors. Do not add a Claude co-author trailer to work Claude did not write.
 - **Never push** until Task 21 and the user's explicit approval.
-- **Test command (T):** `DATA_DIR=docs-provided/problem-statement/sdoc-hackathon-bundle uv run pytest api/tests -q -p no:cacheprovider --basetemp=.pytest-tmp`. The default pytest temp dir is blocked on this machine; `--basetemp` fixes that. Baseline: **64 passed**.
+- **Test command (T):** `DATA_DIR=docs-provided/problem-statement/sdoc-hackathon-bundle uv run pytest api/tests -q -p no:cacheprovider --basetemp=.pytest-tmp`. The default pytest temp dir is blocked on this machine; `--basetemp` fixes that. Historical baseline: **64 passed**; at completed Task 5: **90 passed**. Later expected test totals are historical estimates, not acceptance requirements.
 - **Lint (L):** `uv run ruff check api`. It must print `All checks passed!` at the end of every Python task. Ruff config: line length 120, rules `E,F,I,B,UP,SIM`, `B008` ignored. Use `uv run ruff check api --fix` for import order.
 - **Web check (W):** `cd web && pnpm install --frozen-lockfile && pnpm exec tsc --noEmit && pnpm build; cd ..`
 - **Tests** need no database and no network (the repo's convention). Test files insert the api dir on `sys.path` and import `app.*` / `pipeline.*` with `# noqa: E402`.
 - **Python deps:** only one new runtime dependency, `python-multipart` (Task 16). Use `uv add`, which also updates `uv.lock`.
 - **pnpm:** `10.34.5`, pinned via `packageManager`. Node 22.
-- **Budget:** US$5. Every Cloud Run service scales to zero with request-based billing. Hard caps: web max 2, api max 2, scorer max 1, worker job 1 task / parallelism 1. No load balancer, no VPC connector.
+- **Budget:** US$5 spending target, not a guarantee. Use the user-selected RM40 monthly disconnect threshold; deploy/test/arm the guard before public deployment. API max 2, scorer max 1, min 0; worker task/parallelism 1 plus a separate global execution admission limit. No GCP web service, load balancer, or VPC connector.
 - **Secrets:** the implementer never reads, prints, or copies `.env` or any secret value. `scripts/gcp/set-secrets.sh` and `scripts/gcp/neon-region.sh` are **run by the human operator** (the user).
 - **Answer key:** `ground_truth.json` must never be committed again. It lives in git-ignored `secrets/` locally and in Secret Manager (`GROUND_TRUTH`) in the cloud.
-- **Names:** services `sdoc-web`, `sdoc-api`, `sdoc-scorer`; job `sdoc-worker`; Artifact Registry repo `sdoc`; bucket `<PROJECT_ID>-sdoc-uploads`; service accounts `sdoc-web`, `sdoc-api`, `sdoc-scorer`, `sdoc-deployer`; secrets `NEON_DB_URI`, `OPENROUTER_API_KEY`, `DEMO_PASSCODE`, `GROUND_TRUTH`; reviewer cookie `sdoc_reviewer`; header `X-Demo-Passcode`; uploads run label `Uploads & retries`.
+- **Names:** GCP services `sdoc-api`, `sdoc-scorer`; Vercel project `sdoc-web`; job `sdoc-worker`; Artifact Registry repo `sdoc`; bucket `<PROJECT_ID>-sdoc-uploads`; service accounts `sdoc-api`, `sdoc-scorer`, `sdoc-deployer`; secrets `NEON_DB_URI`, `OPENROUTER_API_KEY`, `DEMO_PASSCODE`, `GROUND_TRUTH`; reviewer cookie `sdoc_reviewer`; header `X-Demo-Passcode`; uploads run label `Uploads & retries`.
 
 ### Deliberate deviations from the spec (all small, all justified)
 
@@ -37,7 +37,7 @@
 | no run error column | `runs.error` column + "Failed" badge | a worker that dies must be visible, not "Running" forever |
 | — | `scripts/gcp/selftest.sh` in CI | offline tests for the bash scripts (syntax, region mapping, no credential leakage) |
 | — | `api/tests/conftest.py` | a developer's `.env` must not change test outcomes (passcode, executor, assist flags) |
-| budgets alert only | Task 18b adds a $10 kill switch (Pub/Sub → Cloud Function → unlink billing) | the user asked for a hard stop; armed at 2× the alert budget so it cannot fire during normal judging traffic |
+| budgets alert only | Former Task 18b runs before app deployment; user selected RM40/month and guard is armed | delayed billing disconnect is a backstop, not an exact dollar cap |
 | new project `sdoc-verifier-<hex>` | existing project **`averis-email-system`** (number `969206696114`), billing `015CE1-381F1A-582702`, region `asia-southeast1` | the project already exists with billing linked, and Neon is on `aws ap-southeast-1` |
 
 ---
@@ -80,7 +80,7 @@
 
 | File | Responsibility |
 |---|---|
-| `web/next.config.ts` (modify) | `output: "standalone"`, no rewrites |
+| `web/next.config.ts` (modified) | native Vercel build, optional standalone for local Docker, runtime proxy |
 | `web/lib/server.ts` (create) | server-only `apiBase`, cookie name, `reviewerUnlocked` |
 | `web/app/api/[...path]/route.ts` (create) | runtime API proxy + passcode header |
 | `web/app/healthz/route.ts` (create) | liveness |
@@ -1731,6 +1731,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 8: Worker CLI (run, seed, reset)
 
+> **Required correction:** normal `run_command` below does not score. Resolve the score lifecycle and enforce global execution admission/idempotency before launch; see the amendment.
+
 **Files:**
 - Create: `api/pipeline/worker.py`, `api/tests/test_worker.py`
 
@@ -2083,1214 +2085,79 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 10: Runtime API proxy and standalone web image
+### Task 10: Vercel web and runtime API proxy
 
-**Files:**
-- Create: `web/lib/server.ts`, `web/app/api/[...path]/route.ts`, `web/app/healthz/route.ts`, `web/public/robots.txt`
-- Modify: `web/next.config.ts`, `web/package.json`, `web/Dockerfile`, `.github/workflows/ci.yml`
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-**Interfaces:**
-- Produces: `REVIEWER_COOKIE = "sdoc_reviewer"` and `apiBase(): string` in `@/lib/server`. Every browser `/api/*` request is forwarded to `${API_URL}/api/*` at request time, with `X-Demo-Passcode` taken from the cookie. `GET /healthz` returns `{"ok":true}`. The image listens on 3000 as the `node` user.
+The runtime proxy, reviewer auth route, liveness endpoint and Vercel configuration now exist. Do not recreate them from the original snippets.
 
-- [ ] **Step 1: Reproduce defect D1 (the failing check)**
-
-```bash
-cd web && pnpm install --frozen-lockfile && pnpm build >/dev/null && node -e "console.log(JSON.stringify(require('./.next/routes-manifest.json').rewrites.afterFiles))"; cd ..
-```
-
-Expected: a rewrite whose `destination` is `http://localhost:8000/api/:path*`. That value is baked in at build time.
-
-- [ ] **Step 2: Remove the rewrite; standalone output**
-
-Replace `web/next.config.ts` with:
-
-```ts
-import type { NextConfig } from "next";
-
-// Browser API calls go through app/api/[...path]/route.ts, which reads
-// API_URL per request. (rewrites() would bake the destination in at build.)
-const nextConfig: NextConfig = {
-  output: "standalone",
-};
-export default nextConfig;
-```
-
-- [ ] **Step 3: Server helpers, proxy, health route**
-
-Create `web/lib/server.ts`:
-
-```ts
-// Server-only helpers for route handlers and server components. Never
-// import this from a "use client" file: API_URL is a server-side setting.
-export const REVIEWER_COOKIE = "sdoc_reviewer";
-
-export function apiBase(): string {
-  return process.env.API_URL || "http://localhost:8000";
-}
-```
-
-Create `web/app/api/[...path]/route.ts`:
-
-```ts
-import type { NextRequest } from "next/server";
-import { apiBase, REVIEWER_COOKIE } from "@/lib/server";
-
-// Same-origin proxy: the browser only ever talks to this app. API_URL is
-// read per request, so one image works under compose and on Cloud Run.
-export const dynamic = "force-dynamic";
-
-const PASS_REQUEST = ["content-type", "accept"];
-const PASS_RESPONSE = ["content-type", "content-disposition", "cache-control"];
-const TIMEOUT_MS = 120_000; // above intake's 90 s processing budget
-
-async function proxy(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
-  const { path } = await params;
-  const target = `${apiBase()}/api/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
-  const headers = new Headers();
-  for (const name of PASS_REQUEST) {
-    const value = request.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-  const passcode = request.cookies.get(REVIEWER_COOKIE)?.value;
-  if (passcode) headers.set("x-demo-passcode", passcode);
-  const hasBody = !["GET", "HEAD"].includes(request.method);
-  try {
-    const upstream = await fetch(target, {
-      method: request.method,
-      headers,
-      body: hasBody ? request.body : undefined,
-      cache: "no-store",
-      redirect: "manual",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      ...(hasBody ? { duplex: "half" } : {}),
-    } as RequestInit);
-    const out = new Headers();
-    for (const name of PASS_RESPONSE) {
-      const value = upstream.headers.get(name);
-      if (value) out.set(name, value);
-    }
-    return new Response(upstream.body, { status: upstream.status, headers: out });
-  } catch (err) {
-    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-    return Response.json(
-      { detail: timedOut ? "The API did not respond in time. Please try again." : "The API is unreachable right now." },
-      { status: timedOut ? 504 : 502 },
-    );
-  }
-}
-
-export { proxy as DELETE, proxy as GET, proxy as PATCH, proxy as POST, proxy as PUT };
-```
-
-Create `web/app/healthz/route.ts`:
-
-```ts
-// Liveness for Docker and uptime checks: no API or database call.
-export const dynamic = "force-dynamic";
-
-export function GET() {
-  return Response.json({ ok: true });
-}
-```
-
-Create `web/public/robots.txt`:
-
-```text
-User-agent: *
-Disallow: /
-```
-
-- [ ] **Step 4: Pin pnpm and rewrite the Dockerfile**
-
-In `web/package.json`, add this line directly after `"version": "0.1.0",`:
-
-```json
-  "packageManager": "pnpm@10.34.5",
-```
-
-In `.github/workflows/ci.yml`, delete these two lines under `- uses: pnpm/action-setup@v4`. The action errors when `version` and `packageManager` are both set.
-
-```yaml
-        with:
-          version: 10
-```
-
-Replace `web/Dockerfile` with:
-
-```dockerfile
-# syntax=docker/dockerfile:1
-FROM node:22-alpine AS base
-RUN npm install -g pnpm@10.34.5
-WORKDIR /app
-
-FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-FROM base AS build
-ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN pnpm build
-
-# --- runtime: standalone server only, non-root --------------------------------
-FROM node:22-alpine AS runtime
-WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
-COPY --from=build --chown=node:node /app/public ./public
-COPY --from=build --chown=node:node /app/.next/standalone ./
-COPY --from=build --chown=node:node /app/.next/static ./.next/static
-USER node
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3000/healthz >/dev/null || exit 1
-CMD ["node", "server.js"]
-```
-
-- [ ] **Step 5: Type-check and build; confirm no rewrite is baked in**
-
-Run: `W`, then `cd web && node -e "console.log(JSON.stringify(require('./.next/routes-manifest.json').rewrites))"; cd ..`
-Expected: tsc and build succeed. The rewrites print as `[]` or all-empty arrays, with no `localhost:8000`.
-
-- [ ] **Step 6: Prove the proxy reads API_URL at runtime (fixes D1)**
-
-```bash
-cd web
-node -e 'require("http").createServer((q, r) => { r.setHeader("content-type", "application/json"); r.end(JSON.stringify({ method: q.method, url: q.url, passcode: q.headers["x-demo-passcode"] || null })); }).listen(9999)' &
-STUB=$!
-PORT=3999 API_URL=http://127.0.0.1:9999 node .next/standalone/server.js &
-WEB=$!
-for i in $(seq 1 30); do curl -fs localhost:3999/healthz >/dev/null && break; sleep 1; done
-curl -s localhost:3999/healthz; echo
-curl -s -X POST -b "sdoc_reviewer=pw" "localhost:3999/api/pipeline/run?label=x"; echo
-kill $WEB $STUB
-cd ..
-```
-
-Expected: `{"ok":true}`, then `{"method":"POST","url":"/api/pipeline/run?label=x","passcode":"pw"}`. If a port is still busy afterwards, run in PowerShell: `Get-NetTCPConnection -LocalPort 3999,9999 -State Listen | % { Stop-Process -Id $_.OwningProcess -Force }`.
-
-- [ ] **Step 7: Build and check the image**
-
-```bash
-docker build -t sdoc-web:local web
-docker run -d --name sdoc-web-smoke -p 3000:3000 -e API_URL=http://127.0.0.1:9 sdoc-web:local
-for i in $(seq 1 30); do curl -fs localhost:3000/healthz >/dev/null && break; sleep 1; done
-curl -s localhost:3000/healthz; echo
-docker exec sdoc-web-smoke id -u
-curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/api/emails
-docker rm -f sdoc-web-smoke
-docker image ls sdoc-web:local --format '{{.Size}}'
-```
-
-Expected: `{"ok":true}`; `1000`; `502` (the API is deliberately unreachable, and the proxy reports it cleanly). The image size is well under 300 MB.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add web/next.config.ts web/lib/server.ts "web/app/api/[...path]/route.ts" web/app/healthz/route.ts web/public/robots.txt web/package.json web/Dockerfile .github/workflows/ci.yml
-git commit -m "Proxy API calls at request time and ship a standalone web image
-
-The rewrite baked localhost:8000 into the build, so browser actions
-failed under compose. The route handler reads API_URL per request and
-forwards the reviewer passcode.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+- [ ] Run `pnpm exec tsc --noEmit`, `pnpm build`, then `pnpm test:proxy` in `web/`.
+- [ ] Vercel project root is `web`, Node 22, native Next.js build, Singapore (`sin1`). Set server-only `API_URL` after backend deployment.
+- [ ] Confirm Hobby eligibility or explicitly choose a paid plan with independent spend controls; do not silently upgrade.
+- [ ] Optional local Docker hardening can use `WEB_STANDALONE=1` during build, non-root runtime and pinned pnpm. No web image is pushed to GCP.
+- [ ] Browser requests stay same-origin. Keep the 4,000,000-byte proxy limit and test API outage, authentication, 204/HEAD and upload failures.
 
 ---
 
 ### Task 11: Reviewer mode in the web app
 
-**Files:**
-- Create: `web/app/auth/reviewer/route.ts`, `web/app/components/Reviewer.tsx`
-- Modify: `web/lib/server.ts`, `web/app/layout.tsx`, `web/app/components/Navigation.tsx`, `web/app/emails/[id]/ReviewActions.tsx`, `web/app/emails/[id]/LlmAssist.tsx`, `web/app/runs/RunControls.tsx`, `web/app/globals.css`
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-**Interfaces:**
-- Consumes: `GET /api/auth/check` (Task 3), `REVIEWER_COOKIE`/`apiBase` (Task 10).
-- Produces: `reviewerUnlocked(passcode?: string): Promise<boolean>` in `@/lib/server`. `POST /auth/reviewer {passcode}` sets the cookie and returns 200 (400/401/502 on failure); `DELETE /auth/reviewer` clears it. From `app/components/Reviewer.tsx`: `ReviewerProvider({unlocked, hasPasscode, children})`, `useReviewer(): {unlocked, hasPasscode}`, `ReviewerPanel()`, `LockedHint({action})`.
+Use the existing `web/app/auth/reviewer/route.ts`; do not replace its origin checks, validation, cookie flags or timeout handling.
 
-- [ ] **Step 1: Server-side unlock check**
-
-Append to `web/lib/server.ts`:
-
-```ts
-
-/** 204 from /api/auth/check means this caller may write. */
-export async function reviewerUnlocked(passcode: string | undefined): Promise<boolean> {
-  try {
-    const r = await fetch(`${apiBase()}/api/auth/check`, {
-      headers: passcode ? { "x-demo-passcode": passcode } : {},
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
-    });
-    return r.status === 204;
-  } catch {
-    return false;
-  }
-}
-```
-
-- [ ] **Step 2: Unlock / lock route**
-
-Create `web/app/auth/reviewer/route.ts`:
-
-```ts
-import { NextResponse, type NextRequest } from "next/server";
-import { apiBase, REVIEWER_COOKIE } from "@/lib/server";
-
-export const dynamic = "force-dynamic";
-const TWELVE_HOURS = 60 * 60 * 12;
-
-export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
-  const passcode = typeof body?.passcode === "string" ? body.passcode.trim() : "";
-  if (!passcode) return NextResponse.json({ detail: "Enter the reviewer passcode." }, { status: 400 });
-  let check: Response;
-  try {
-    check = await fetch(`${apiBase()}/api/auth/check`, {
-      headers: { "x-demo-passcode": passcode },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch {
-    return NextResponse.json({ detail: "The API is unreachable right now." }, { status: 502 });
-  }
-  if (check.status === 401) return NextResponse.json({ detail: "That passcode is not correct." }, { status: 401 });
-  if (check.status !== 204) return NextResponse.json({ detail: `Could not verify the passcode (${check.status}).` }, { status: 502 });
-  const response = NextResponse.json({ unlocked: true });
-  response.cookies.set(REVIEWER_COOKIE, passcode, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: TWELVE_HOURS,
-  });
-  return response;
-}
-
-export async function DELETE() {
-  const response = NextResponse.json({ unlocked: false });
-  response.cookies.delete(REVIEWER_COOKIE);
-  return response;
-}
-```
-
-- [ ] **Step 3: Reviewer context, panel, hint**
-
-Create `web/app/components/Reviewer.tsx`:
-
-```tsx
-"use client";
-import { useRouter } from "next/navigation";
-import { createContext, useContext, useState } from "react";
-
-type Reviewer = { unlocked: boolean; hasPasscode: boolean };
-const ReviewerContext = createContext<Reviewer>({ unlocked: false, hasPasscode: false });
-
-export function ReviewerProvider({ unlocked, hasPasscode, children }: Reviewer & { children: React.ReactNode }) {
-  return <ReviewerContext.Provider value={{ unlocked, hasPasscode }}>{children}</ReviewerContext.Provider>;
-}
-
-export function useReviewer() {
-  return useContext(ReviewerContext);
-}
-
-export function LockedHint({ action }: { action: string }) {
-  const { unlocked } = useReviewer();
-  return unlocked ? null : <p className="locked-hint">Unlock reviewer mode in the sidebar to {action}.</p>;
-}
-
-export function ReviewerPanel() {
-  const { unlocked, hasPasscode } = useReviewer();
-  const router = useRouter();
-  const [passcode, setPasscode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function unlock(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
-    try {
-      const r = await fetch("/auth/reviewer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passcode }) });
-      if (!r.ok) { const body = await r.json().catch(() => null); throw new Error(body?.detail ?? "Could not unlock reviewer mode."); }
-      setPasscode(""); router.refresh();
-    } catch (err) { setError(err instanceof Error ? err.message : "Could not unlock reviewer mode."); }
-    finally { setBusy(false); }
-  }
-  async function lock() {
-    setBusy(true);
-    await fetch("/auth/reviewer", { method: "DELETE" }).catch(() => null);
-    setBusy(false); router.refresh();
-  }
-  if (unlocked && !hasPasscode) return <div className="reviewer-panel"><span><span className="status-dot" />Open access</span><small>No reviewer passcode is configured.</small></div>;
-  if (unlocked) return <div className="reviewer-panel"><span><span className="status-dot" />Reviewer mode on</span><button className="ghost" onClick={lock} disabled={busy}>Lock</button></div>;
-  return <form className="reviewer-panel" onSubmit={unlock}><label htmlFor="reviewer-passcode">Reviewer mode</label><input id="reviewer-passcode" type="password" autoComplete="current-password" placeholder="Passcode" value={passcode} onChange={e => setPasscode(e.target.value)} maxLength={200}/><button disabled={busy || !passcode}>{busy ? "Checking…" : "Unlock"}</button>{error && <small className="error" role="alert">{error}</small>}</form>;
-}
-```
-
-- [ ] **Step 4: Provide it from the layout and show it in the sidebar**
-
-Replace `web/app/layout.tsx` with:
-
-```tsx
-import { cookies } from "next/headers";
-import { REVIEWER_COOKIE, reviewerUnlocked } from "@/lib/server";
-import "./globals.css";
-import Navigation from "./components/Navigation";
-import { ReviewerProvider } from "./components/Reviewer";
-
-export const metadata = { title: "SDOC · Document operations", description: "Review shipping documents with source evidence and clear, field-level decisions." };
-
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const passcode = (await cookies()).get(REVIEWER_COOKIE)?.value;
-  const unlocked = await reviewerUnlocked(passcode);
-  return <html lang="en"><body><ReviewerProvider unlocked={unlocked} hasPasscode={Boolean(passcode)}><a className="skip-link" href="#main">Skip to content</a><Navigation /><div className="workspace"><header className="topbar"><span>Shipping operations <span className="muted">/ Document verification</span></span><span className="badge dim">SI → Draft BL</span></header><main id="main">{children}</main><footer>SDOC Verifier <span>AI-assisted reading. Deterministic comparison. Human oversight.</span></footer></div></ReviewerProvider></body></html>;
-}
-```
-
-In `web/app/components/Navigation.tsx`:
-- Add `import { ReviewerPanel } from "./Reviewer";` after the `usePathname` import.
-- Insert `<ReviewerPanel />` directly before `<div className="sidebar-note">`.
-
-- [ ] **Step 5: Lock the write controls**
-
-Replace `web/app/emails/[id]/ReviewActions.tsx` with:
-
-```tsx
-"use client";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { COMPARE_FIELDS, request } from "@/lib/api";
-import { FIELDS } from "@/lib/labels";
-import { LockedHint, useReviewer } from "../../components/Reviewer";
-
-export default function ReviewActions({ resultId, status, defectFields, canCompare }: { resultId: string; status: string; defectFields: string[]; canCompare: boolean }) {
-  const router = useRouter();
-  const { unlocked } = useReviewer();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [fields, setFields] = useState(defectFields);
-  const [reviewer, setReviewer] = useState("");
-  const locked = busy || !unlocked;
-  async function act(action: string, payload?: Record<string, unknown>) {
-    setBusy(true); setMessage(""); setError("");
-    try {
-      await request(`/api/review/${resultId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, payload, reviewer: reviewer.trim() || "ops" }) });
-      setMessage(action === "confirm" ? "Verdict confirmed. Confirmation keeps the current status." : "Changes saved. The verdict has been updated.");
-      router.refresh();
-    } catch (err) { setError(err instanceof Error ? err.message : "Could not save the review."); }
-    finally { setBusy(false); }
-  }
-  return <section className="panel review-form"><h2>Reviewer decision</h2><p className="muted">Confirm the finding or correct it after checking the source documents.</p><LockedHint action="record a decision"/><div className="filters"><input aria-label="Reviewer name" placeholder="Reviewer name (optional)" value={reviewer} onChange={e => setReviewer(e.target.value)} maxLength={100}/></div><div className="actions"><button disabled={locked} onClick={() => act("confirm")}>Confirm verdict</button>{status !== "OK" && <button className="ghost" disabled={locked} onClick={() => act("override_status", {status:"OK",review_reason:null})}>Mark clear</button>}{status !== "NEEDS_REVIEW" && <button className="ghost" disabled={locked} onClick={() => act("override_status", {status:"NEEDS_REVIEW",review_reason:"manual_flag"})}>Escalate to review</button>}</div>
-    {canCompare && <details><summary>Correct the mismatch fields</summary><p className="muted">Select the fields that differ. Saving no fields marks the result clear.</p><div className="field-options">{COMPARE_FIELDS.map(f => <label key={f}><input type="checkbox" checked={fields.includes(f)} disabled={locked} onChange={e => setFields(previous => e.target.checked ? [...previous,f] : previous.filter(v => v !== f))}/>{FIELDS[f]}</label>)}</div><button className="ghost" disabled={locked} onClick={() => act("override_fields", {defect_fields:fields})}>Save field corrections</button></details>}
-    <div aria-live="polite" className="feedback">{busy ? "Saving review…" : message && <span className="success">{message}</span>}</div>{error && <p className="error" role="alert">{error}</p>}
-  </section>;
-}
-```
-
-Replace `web/app/emails/[id]/LlmAssist.tsx` with:
-
-```tsx
-"use client";
-import { useState } from "react";
-import { request } from "@/lib/api";
-import { LockedHint, useReviewer } from "../../components/Reviewer";
-export default function LlmAssist({ emailId }: { emailId: string }) {
-  const { unlocked } = useReviewer();
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function run() {
-    setBusy(true); setError(""); setData(null);
-    try { setData(await request<Record<string, unknown>>(`/api/pipeline/llm-assist/${emailId}`, { method: "POST" })); }
-    catch (err) { setError(err instanceof Error ? err.message : "AI assist is unavailable."); }
-    finally { setBusy(false); }
-  }
-  return <section className="panel"><div className="eyebrow">A second reading</div><h2 style={{marginTop:8}}>AI assist</h2><p className="muted">Ask the model to classify and extract details. Suggestions do not change the saved verdict.</p><button className="ghost" style={{marginTop:16}} onClick={run} disabled={busy || !unlocked}>{busy ? "Reading with AI…" : data ? "Run again" : "Run AI assist"}</button><LockedHint action="run the models"/>{error && <p role="alert" className="error">{error}</p>}{data && <details open><summary>Model response</summary><pre>{JSON.stringify(data,null,2)}</pre></details>}</section>;
-}
-```
-
-Replace `web/app/runs/RunControls.tsx` with:
-
-```tsx
-"use client";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { request, Run } from "@/lib/api";
-import { LockedHint, useReviewer } from "../components/Reviewer";
-export default function RunControls({ running }: { running: boolean }) {
-  const router = useRouter();
-  const { unlocked } = useReviewer();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [started, setStarted] = useState<string | null>(null);
-  useEffect(() => {
-    if (!running && !started) return;
-    const timer = setInterval(async () => {
-      router.refresh();
-      if (started) {
-        try {
-          const run = await request<Run>(`/api/runs/${started}`);
-          if (run.finished_at) setStarted(null);
-        } catch { setError("Progress is temporarily unavailable. Refresh to check the run."); }
-      }
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [running, started, router]);
-  async function start() {
-    setBusy(true); setError("");
-    try {
-      const result = await request<{run_id:string}>("/api/pipeline/run?label=Workspace%20run", {method:"POST"});
-      setStarted(result.run_id); router.refresh();
-    } catch (err) { setError(err instanceof Error ? err.message : "Could not start the run."); }
-    finally { setBusy(false); }
-  }
-  return <div><button onClick={start} disabled={busy || running || !!started || !unlocked}>{busy ? "Starting…" : running || started ? "Processing inbox…" : "Run inbox checks"}</button><LockedHint action="start a run"/>{error && <p className="error" role="alert">{error}</p>}<p className="muted" style={{fontSize:11}}>{running || started ? "Results refresh every few seconds." : "Uses the AI switches configured on the server."}</p></div>;
-}
-```
-
-Append to `web/app/globals.css`:
-
-```css
-.reviewer-panel { display:grid; gap:8px; margin:18px 10px 0; padding:14px 12px; border:1px solid #31504b; border-radius:9px; font-size:12px; color:#d2e2df; }
-.reviewer-panel label { font-size:10px; letter-spacing:1.4px; text-transform:uppercase; color:#7ea69e; }
-.reviewer-panel input { background:#16383a; border-color:#31504b; color:white; }
-.reviewer-panel small { color:#89aaa1; }
-.reviewer-panel .error { color:#ffb4a8; }
-.locked-hint { font-size:12px; color:var(--warn); margin:10px 0 0; }
-```
-
-- [ ] **Step 6: Type-check and build**
-
-Run: `W`
-Expected: tsc and build succeed.
-
-- [ ] **Step 7: Verify unlock / lock against a stub API**
-
-```bash
-cd web
-node -e 'require("http").createServer((q, r) => { if (q.url.startsWith("/api/auth/check")) { r.statusCode = q.headers["x-demo-passcode"] === "pw" ? 204 : 401; return r.end(); } r.end("{}"); }).listen(9999)' &
-STUB=$!
-PORT=3999 API_URL=http://127.0.0.1:9999 node .next/standalone/server.js &
-WEB=$!
-for i in $(seq 1 30); do curl -fs localhost:3999/healthz >/dev/null && break; sleep 1; done
-curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3999/auth/reviewer -H 'content-type: application/json' -d '{"passcode":"nope"}'
-curl -s -D - -o /dev/null -X POST localhost:3999/auth/reviewer -H 'content-type: application/json' -d '{"passcode":"pw"}' | grep -i '^set-cookie'
-curl -s -D - -o /dev/null -X DELETE localhost:3999/auth/reviewer | grep -i '^set-cookie'
-kill $WEB $STUB
-cd ..
-```
-
-Expected: `401`. Then `set-cookie: sdoc_reviewer=pw; Path=/; Max-Age=43200; ... HttpOnly; SameSite=lax`. Then a `set-cookie: sdoc_reviewer=; ... Expires=Thu, 01 Jan 1970` line.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add web/lib/server.ts web/app/auth web/app/components web/app/layout.tsx "web/app/emails/[id]/ReviewActions.tsx" "web/app/emails/[id]/LlmAssist.tsx" web/app/runs/RunControls.tsx web/app/globals.css
-git commit -m "Add reviewer mode: browse freely, unlock to make changes
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+- [ ] Add the sidebar reviewer panel and provider. Unlock with POST `/auth/reviewer` and lock with DELETE; never store the passcode in localStorage or expose it through props.
+- [ ] Keep the passcode input labelled, clear it after submission, show pending and incorrect/expired-passcode states, and retain public read access.
+- [ ] Disable Run, AI assist, reviewer mutations, Retry and intake while locked; show an actionable explanation.
+- [ ] Verify bad passcode fails, valid cookie permits a write, expiry/rotation re-locks on 401, and explicit lock clears access.
+- [ ] API authorization remains mandatory even when UI controls are disabled.
 
 ---
 
-### Task 12: Compose parity and CI container smoke
+### Task 12: Local parity and deployment checks
 
-**Files:**
-- Modify: `docker-compose.yml`, `.github/workflows/ci.yml`
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-**Interfaces:**
-- Consumes: the images from Tasks 9 and 10; `/livez`, `/healthz`, `/api/auth/check`.
 
-- [ ] **Step 1: Rewrite compose**
-
-Replace `docker-compose.yml` with:
-
-```yaml
-# SDOC Verifier — web + api + provided scorer (dev/eval).
-#   docker compose up --build
-# web -> http://localhost:3000   api -> http://localhost:8000   scorer -> :8080
-# Same images as Cloud Run; the dataset is baked into the api image.
-services:
-  api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    env_file:
-      - path: .env                 # NEON_DB_URI, OPENROUTER_API_KEY, DEMO_PASSCODE
-        required: false
-    environment:
-      DATA_DIR: /data
-      SCORER_URL: http://scorer:8000
-      CORS_ORIGINS: http://localhost:3000
-    volumes:
-      - uploads:/data/uploads      # Cloud Run mounts a Cloud Storage bucket here
-    ports:
-      - "8000:8000"
-
-  web:
-    build: ./web
-    environment:
-      API_URL: http://api:8000     # read per request by the /api proxy and SSR
-    ports:
-      - "3000:3000"
-    depends_on:
-      api:
-        condition: service_healthy
-
-  scorer:                          # provided eval server; dev-only dependency
-    build: ./docs-provided/problem-statement/sdoc-hackathon-docker/server
-    volumes:
-      - ./docs-provided/problem-statement/sdoc-hackathon-docker/data_v2:/data:ro
-      # answer key stays out of git: see secrets/README.md
-      - ./secrets/ground_truth.json:/secrets/ground_truth.json:ro
-    ports:
-      - "8080:8000"
-
-volumes:
-  uploads:
-```
-
-- [ ] **Step 2: Verify compose end to end (no .env needed)**
-
-```bash
-docker compose config -q && echo compose-ok
-docker compose up --build -d api web
-for i in $(seq 1 60); do curl -fs localhost:3000/healthz >/dev/null && break; sleep 2; done
-curl -s localhost:8000/livez; echo
-curl -s localhost:3000/healthz; echo
-curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/api/auth/check
-docker compose down
-```
-
-Expected: `compose-ok`; `{"ok":true}` twice; `204`. The last line proves browser-side API calls now work through compose (D1 fixed). With no `.env` the database is unconfigured, which is fine here.
-
-- [ ] **Step 3: Add the container smoke job to CI**
-
-Append this job to `.github/workflows/ci.yml` (under `jobs:`, after `web:`):
-
-```yaml
-  images:
-    name: container smoke
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: build images
-        run: |
-          docker build -f api/Dockerfile -t sdoc-api:ci .
-          docker build -t sdoc-web:ci web
-      - name: api boots with the dataset baked in
-        run: |
-          docker network create smoke
-          docker run -d --name api --network smoke -p 8000:8000 sdoc-api:ci
-          for i in $(seq 1 30); do curl -fs localhost:8000/livez && break; sleep 1; done
-          curl -fs localhost:8000/livez
-          curl -s localhost:8000/health | python3 -c "import json,sys; h=json.load(sys.stdin); assert h['data_dir']['present'], h"
-      - name: web proxies to the api at runtime
-        run: |
-          docker run -d --name web --network smoke -p 3000:3000 -e API_URL=http://api:8000 sdoc-web:ci
-          for i in $(seq 1 30); do curl -fs localhost:3000/healthz && break; sleep 1; done
-          curl -fs localhost:3000/healthz
-          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:3000/api/auth/check)" = 204
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add docker-compose.yml .github/workflows/ci.yml
-git commit -m "Run the cloud images under compose and smoke-test them in CI
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+- [ ] Keep compose for local development, with persistent uploads and a private scorer key from ignored `secrets/`.
+- [ ] Harden and smoke-test API/scorer images. Optional web Docker parity uses standalone output explicitly; production web uses Vercel.
+- [ ] CI requires Python lint/tests including the billing guard, TypeScript, native Next build and the production proxy stub test.
+- [ ] Never upload `.env`, the answer key, or test credentials into an image/build context.
 
 ---
 
-### Task 13: GCP scripts with an offline selftest
-
-**Files:**
-- Create: `scripts/gcp/selftest.sh`, `scripts/gcp/lib-env.sh`, `scripts/gcp/common.sh`, `scripts/gcp/neon-region.sh`, `scripts/gcp/bootstrap.sh`, `scripts/gcp/set-secrets.sh`, `scripts/gcp/deploy.sh`, `scripts/gcp/smoke.sh`, `scripts/gcp/demo-reset.sh`, `scripts/gcp/ar-cleanup-policy.json`, `scripts/gcp/uploads-lifecycle.json`
-- Modify: `.github/workflows/ci.yml`
-
-**Interfaces:**
-- Produces:
-  - `env_value NAME FILE` (from `lib-env.sh`).
-  - From `common.sh` (requires `PROJECT_ID`, `REGION`): `$AR_REPO`, `$AR_HOST`, `$AR_PATH`, `$BUCKET`, `$WORKER_JOB`, `$WEB_SA`, `$API_SA`, `$SCORER_SA`, `$DEPLOYER_SA`, `${SECRETS[@]}`, `$PY`, and the functions `project_number`, `service_url NAME`, `gapi METHOD URL [JSON]` and `find_channel EMAIL`.
-  - Every script is run as `bash scripts/gcp/<name>.sh` with `PROJECT_ID`/`REGION` exported.
-
-- [ ] **Step 1: Write the failing selftest**
-
-Create `scripts/gcp/selftest.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Offline checks for scripts/gcp: syntax, region mapping, no credential
-# leakage, URL helper, JSON files. No gcloud, no network. Runs in CI.
-set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-fail() { echo "FAIL: $*" >&2; exit 1; }
-
-for f in "$HERE"/*.sh; do bash -n "$f" || fail "syntax: $f"; done
-
-check_region() { # check_region DOTENV_LINE EXPECTED_NEON EXPECTED_GCP
-  printf '%s\n' "$1" > "$TMP/.env"
-  local out
-  out="$(bash "$HERE/neon-region.sh" "$TMP/.env")"
-  [[ "$out" == *"neon: $2"* ]] || fail "neon label for [$1]: $out"
-  [[ "$out" == *"gcp:  $3"* ]] || fail "gcp region for [$1]: $out"
-  [[ "$out" != *hunter2* && "$out" != *alice* && "$out" != *ep-* ]] || fail "leaked connection details: $out"
-}
-check_region 'NEON_DB_URI=postgresql://alice:hunter2@ep-cool-darkness-123456-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require' "aws ap-southeast-1" asia-southeast1
-check_region 'NEON_DB_URI="postgresql://alice:hunter2@ep-x-1.us-east-2.aws.neon.tech/db"   # main branch' "aws us-east-2" us-east5
-check_region 'NEON_DB_URI=postgresql://alice:hunter2@ep-x-1.c-2.us-east-1.aws.neon.tech/db' "aws us-east-1" us-east4
-check_region 'NEON_DB_URI=postgres://alice:hunter2@ep-x-1.eastus2.azure.neon.tech/db' "azure eastus2" us-east4
-
-url="$(PROJECT_ID=p REGION=asia-southeast1 PROJECT_NUMBER=123 bash -c "source '$HERE/common.sh'; service_url sdoc-web")"
-[[ "$url" == "https://sdoc-web-123.asia-southeast1.run.app" ]] || fail "service_url: $url"
-
-for j in "$HERE"/*.json; do
-  python3 -m json.tool "$j" >/dev/null 2>&1 || python -m json.tool "$j" >/dev/null || fail "json: $j"
-done
-echo "scripts/gcp selftest OK"
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `bash scripts/gcp/selftest.sh`
-Expected: FAIL, because `neon-region.sh` does not exist. On Windows, if `mktemp` is denied, prefix with `TMPDIR="$PWD/.pytest-tmp"`.
-
-- [ ] **Step 3: Shared helpers and the region script**
-
-Create `scripts/gcp/lib-env.sh`:
-
-```bash
-# env_value NAME FILE — NAME's value in a dotenv file: unquoted, without an
-# inline " # comment". Prints nothing if absent. Callers must never echo it.
-env_value() {
-  local line
-  line="$(grep -E "^[[:space:]]*$1=" "$2" | tail -n 1)" || true
-  line="${line#*=}"
-  line="${line%%[[:space:]]#*}"
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
-  line="${line#[\"\']}"
-  line="${line%[\"\']}"
-  printf '%s' "$line"
-}
-```
-
-Create `scripts/gcp/common.sh`:
-
-```bash
-# Shared names and helpers for scripts/gcp/*.sh — source it, don't run it.
-: "${PROJECT_ID:?set PROJECT_ID (e.g. sdoc-verifier-a1b2c3)}"
-: "${REGION:?set REGION (from neon-region.sh, e.g. asia-southeast1)}"
-
-# Scope every gcloud call to this project without touching the user's
-# global gcloud configuration.
-export CLOUDSDK_CORE_PROJECT="$PROJECT_ID"
-
-AR_REPO=sdoc
-AR_HOST="$REGION-docker.pkg.dev"
-AR_PATH="$AR_HOST/$PROJECT_ID/$AR_REPO"
-BUCKET="$PROJECT_ID-sdoc-uploads"
-WORKER_JOB=sdoc-worker
-WEB_SA="sdoc-web@$PROJECT_ID.iam.gserviceaccount.com"
-API_SA="sdoc-api@$PROJECT_ID.iam.gserviceaccount.com"
-SCORER_SA="sdoc-scorer@$PROJECT_ID.iam.gserviceaccount.com"
-DEPLOYER_SA="sdoc-deployer@$PROJECT_ID.iam.gserviceaccount.com"
-SECRETS=(NEON_DB_URI OPENROUTER_API_KEY DEMO_PASSCODE GROUND_TRUTH)
-
-# a python that actually runs (Windows ships a python3 stub that doesn't)
-PY=""
-for candidate in python3 python; do
-  if "$candidate" -c "import sys" >/dev/null 2>&1; then PY="$candidate"; break; fi
-done
-[[ -n "$PY" ]] || { echo "python is required" >&2; exit 1; }
-
-project_number() {
-  if [[ -n "${PROJECT_NUMBER:-}" ]]; then echo "$PROJECT_NUMBER"; return; fi
-  gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)'
-}
-
-# Cloud Run's deterministic URL: https://<service>-<project-number>.<region>.run.app
-service_url() { echo "https://$1-$(project_number).$REGION.run.app"; }
-
-# Authenticated Google REST call: gapi METHOD URL [JSON_BODY]
-gapi() {
-  local args=(-fsS -X "$1" -H "Authorization: Bearer $(gcloud auth print-access-token)")
-  if [[ $# -ge 3 ]]; then args+=(-H "Content-Type: application/json" --data "$3"); fi
-  curl "${args[@]}" "$2"
-}
-
-# The email notification channel for an address (empty if none yet)
-find_channel() {
-  gapi GET "https://monitoring.googleapis.com/v3/projects/$PROJECT_ID/notificationChannels" |
-    "$PY" -c 'import json,sys; e=sys.argv[1]; print(next((c["name"] for c in json.load(sys.stdin).get("notificationChannels", []) if c.get("labels", {}).get("email_address") == e), ""))' "$1"
-}
-```
-
-Create `scripts/gcp/neon-region.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Print the Neon provider/region and the matching Cloud Run region.
-# Reads NEON_DB_URI from a dotenv file but prints ONLY region labels —
-# never the host, user or password.   OPERATOR-RUN.
-#   bash scripts/gcp/neon-region.sh [.env]
-set -euo pipefail
-source "$(dirname "$0")/lib-env.sh"
-ENV_FILE="${1:-.env}"
-[[ -f "$ENV_FILE" ]] || { echo "no such file: $ENV_FILE" >&2; exit 1; }
-
-uri="$(env_value NEON_DB_URI "$ENV_FILE")"
-[[ -n "$uri" ]] || { echo "NEON_DB_URI is not set in $ENV_FILE" >&2; exit 1; }
-host="${uri#*@}"
-host="${host%%[:/?]*}"   # ep-name-123[-pooler].[c-N.]<region>.<provider>.neon.tech
-unset uri
-rest="${host#*.}"
-unset host
-region="${rest%%.*}"
-if [[ "$region" =~ ^c-[0-9]+$ ]]; then rest="${rest#*.}"; region="${rest%%.*}"; fi
-provider="${rest#*.}"
-provider="${provider%%.*}"
-
-case "$provider/$region" in
-  aws/ap-southeast-1) gcp=asia-southeast1 ;;
-  aws/ap-southeast-2) gcp=australia-southeast1 ;;
-  aws/us-east-1)      gcp=us-east4 ;;
-  aws/us-east-2)      gcp=us-east5 ;;
-  aws/us-west-2)      gcp=us-west1 ;;
-  aws/eu-central-1)   gcp=europe-west3 ;;
-  aws/eu-west-2)      gcp=europe-west2 ;;
-  aws/sa-east-1)      gcp=southamerica-east1 ;;
-  azure/eastus2)      gcp=us-east4 ;;
-  *)                  gcp=asia-southeast1 ;;
-esac
-echo "neon: $provider $region"
-echo "gcp:  $gcp"
-```
-
-Create `scripts/gcp/ar-cleanup-policy.json`:
-
-```json
-[
-  {"name": "keep-3-newest", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 3}},
-  {"name": "delete-older", "action": {"type": "Delete"}, "condition": {"tagState": "any", "olderThan": "1d"}}
-]
-```
-
-Create `scripts/gcp/uploads-lifecycle.json`:
-
-```json
-{"rule": [{"action": {"type": "Delete"}, "condition": {"age": 30}}]}
-```
-
-- [ ] **Step 4: Bootstrap (idempotent; no secret values)**
-
-Create `scripts/gcp/bootstrap.sh`:
-
-```bash
-#!/usr/bin/env bash
-# One-time, re-runnable GCP setup. Everything scales to zero under a US$5
-# budget. Creates secret containers only — values come from set-secrets.sh.
-#   PROJECT_ID=sdoc-verifier-a1b2c3 REGION=asia-southeast1 \
-#   BILLING_ACCOUNT=XXXXXX-XXXXXX-XXXXXX ALERT_EMAIL=you@example.com \
-#     bash scripts/gcp/bootstrap.sh
-set -euo pipefail
-cd "$(dirname "$0")"
-: "${BILLING_ACCOUNT:?set BILLING_ACCOUNT (gcloud billing accounts list)}"
-: "${ALERT_EMAIL:?set ALERT_EMAIL (budget + uptime alerts)}"
-GITHUB_REPO="${GITHUB_REPO:-applejuice8/secret-hack}"
-source ./common.sh
-quiet() { "$@" >/dev/null 2>&1; }
-step() { echo "==> $*"; }
-
-step "project $PROJECT_ID"
-quiet gcloud projects describe "$PROJECT_ID" || gcloud projects create "$PROJECT_ID" --name="SDOC Verifier"
-gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT" >/dev/null
-PROJECT_NUMBER="$(project_number)"
-
-step "APIs"
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com iam.googleapis.com iamcredentials.googleapis.com \
-  sts.googleapis.com storage.googleapis.com monitoring.googleapis.com \
-  billingbudgets.googleapis.com cloudresourcemanager.googleapis.com
-
-step "Artifact Registry '$AR_REPO' (keeps the 3 newest images)"
-quiet gcloud artifacts repositories describe "$AR_REPO" --location="$REGION" ||
-  gcloud artifacts repositories create "$AR_REPO" --repository-format=docker --location="$REGION"
-gcloud artifacts repositories set-cleanup-policies "$AR_REPO" --location="$REGION" \
-  --policy=ar-cleanup-policy.json --no-dry-run >/dev/null
-
-step "uploads bucket gs://$BUCKET (private, 30-day expiry)"
-quiet gcloud storage buckets describe "gs://$BUCKET" ||
-  gcloud storage buckets create "gs://$BUCKET" --location="$REGION" \
-    --uniform-bucket-level-access --public-access-prevention
-gcloud storage buckets update "gs://$BUCKET" --lifecycle-file=uploads-lifecycle.json >/dev/null
-
-step "service accounts"
-for sa in sdoc-web sdoc-api sdoc-scorer sdoc-deployer; do
-  quiet gcloud iam service-accounts describe "$sa@$PROJECT_ID.iam.gserviceaccount.com" ||
-    gcloud iam service-accounts create "$sa" --display-name="$sa"
-done
-
-step "secret containers (values: set-secrets.sh)"
-for s in "${SECRETS[@]}"; do
-  quiet gcloud secrets describe "$s" || gcloud secrets create "$s" --replication-policy=automatic
-done
-bind_secret() {
-  gcloud secrets add-iam-policy-binding "$1" --member="serviceAccount:$2" \
-    --role=roles/secretmanager.secretAccessor >/dev/null
-}
-for s in NEON_DB_URI OPENROUTER_API_KEY DEMO_PASSCODE; do bind_secret "$s" "$API_SA"; done
-bind_secret GROUND_TRUTH "$SCORER_SA"
-
-step "IAM"
-gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --member="serviceAccount:$API_SA" \
-  --role=roles/storage.objectUser >/dev/null
-gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$API_SA" \
-  --role=roles/logging.logWriter --condition=None >/dev/null
-gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" --location="$REGION" \
-  --member="serviceAccount:$DEPLOYER_SA" --role=roles/artifactregistry.writer >/dev/null
-# run.admin, not run.developer: deploys set invoker bindings (setIamPolicy)
-gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$DEPLOYER_SA" \
-  --role=roles/run.admin --condition=None >/dev/null
-for sa in "$WEB_SA" "$API_SA" "$SCORER_SA"; do
-  gcloud iam service-accounts add-iam-policy-binding "$sa" --member="serviceAccount:$DEPLOYER_SA" \
-    --role=roles/iam.serviceAccountUser >/dev/null
-done
-
-step "GitHub OIDC for $GITHUB_REPO@main (no JSON keys)"
-quiet gcloud iam workload-identity-pools describe github --location=global ||
-  gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
-quiet gcloud iam workload-identity-pools providers describe github-actions --location=global --workload-identity-pool=github ||
-  gcloud iam workload-identity-pools providers create-oidc github-actions --location=global \
-    --workload-identity-pool=github --issuer-uri="https://token.actions.githubusercontent.com" \
-    --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
-    --attribute-condition="assertion.repository=='$GITHUB_REPO' && assertion.ref=='refs/heads/main'"
-gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$GITHUB_REPO" >/dev/null
-
-step "alert channel for $ALERT_EMAIL"
-CHANNEL="$(find_channel "$ALERT_EMAIL")"
-if [[ -z "$CHANNEL" ]]; then
-  body="$("$PY" -c 'import json,sys; print(json.dumps({"type": "email", "displayName": "SDOC alerts", "labels": {"email_address": sys.argv[1]}}))' "$ALERT_EMAIL")"
-  CHANNEL="$(gapi POST "https://monitoring.googleapis.com/v3/projects/$PROJECT_ID/notificationChannels" "$body" |
-    "$PY" -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
-fi
-
-step "budget US\$5 (alerts at 50/90/100% actual + 100% forecast)"
-if ! gcloud billing budgets list --billing-account="$BILLING_ACCOUNT" --format="value(displayName)" | grep -qx "sdoc-verifier"; then
-  gcloud billing budgets create --billing-account="$BILLING_ACCOUNT" --display-name="sdoc-verifier" \
-    --budget-amount=5USD --filter-projects="projects/$PROJECT_NUMBER" \
-    --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
-    --threshold-rule=percent=1.0,basis=forecasted-spend \
-    --notifications-rule-monitoring-notification-channels="$CHANNEL" >/dev/null
-fi
-
-cat <<EOF
-
-Bootstrap complete. Next:
-  1. bash scripts/gcp/set-secrets.sh .env     (operator only)
-  2. bash scripts/gcp/deploy.sh
-  3. bash scripts/gcp/demo-reset.sh           (first seed)
-  4. bash scripts/gcp/smoke.sh
-
-GitHub repo variables for .github/workflows/deploy.yml (repo admin):
-  GCP_PROJECT_ID=$PROJECT_ID
-  GCP_PROJECT_NUMBER=$PROJECT_NUMBER
-  GCP_REGION=$REGION
-  GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions
-  GCP_DEPLOYER_SA=$DEPLOYER_SA
-EOF
-```
-
-- [ ] **Step 5: Secrets (operator), deploy, smoke, reset**
-
-Create `scripts/gcp/set-secrets.sh`:
-
-```bash
-#!/usr/bin/env bash
-# OPERATOR ONLY. Pushes secret values into Secret Manager without printing
-# them: NEON_DB_URI and OPENROUTER_API_KEY from a dotenv file, the reviewer
-# passcode typed (hidden) or generated, the answer key from secrets/.
-#   PROJECT_ID=... REGION=... bash scripts/gcp/set-secrets.sh [.env]
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-source "$ROOT/scripts/gcp/common.sh"
-source "$ROOT/scripts/gcp/lib-env.sh"
-ENV_FILE="${1:-$ROOT/.env}"
-[[ -f "$ENV_FILE" ]] || { echo "no such file: $ENV_FILE" >&2; exit 1; }
-
-push() { # push SECRET  (value on stdin)
-  gcloud secrets versions add "$1" --data-file=- >/dev/null
-  echo "  $1: new version added"
-}
-
-for name in NEON_DB_URI OPENROUTER_API_KEY; do
-  value="$(env_value "$name" "$ENV_FILE")"
-  [[ -n "$value" ]] || { echo "$name is empty in $ENV_FILE" >&2; exit 1; }
-  printf '%s' "$value" | push "$name"
-  unset value
-done
-
-read -rsp "Reviewer passcode for judges (leave blank to generate one): " passcode
-echo
-if [[ -z "$passcode" ]]; then
-  passcode="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(9))')"
-  echo "  generated passcode: $passcode   <- give this to judges in the submission form"
-fi
-printf '%s' "$passcode" | push DEMO_PASSCODE
-unset passcode
-
-GT="$ROOT/secrets/ground_truth.json"
-[[ -f "$GT" ]] || { echo "missing $GT (see secrets/README.md)" >&2; exit 1; }
-"$PY" -c 'import json,sys; sys.stdout.write(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$GT" | push GROUND_TRUTH
-echo "Done. Redeploy (scripts/gcp/deploy.sh) so running services pick up the new values."
-```
-
-Create `scripts/gcp/deploy.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Build, push and deploy: scorer -> worker job -> api -> web. Used by people and CI.
-#   PROJECT_ID=... REGION=... [IMAGE_TAG=...] bash scripts/gcp/deploy.sh
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-cd "$ROOT"
-source scripts/gcp/common.sh
-TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
-PROJECT_NUMBER="$(project_number)"
-export PROJECT_NUMBER
-API_URL="$(service_url sdoc-api)"
-WEB_URL="$(service_url sdoc-web)"
-SCORER_URL="$(service_url sdoc-scorer)"
-
-gcloud auth configure-docker "$AR_HOST" --quiet >/dev/null
-build_push() { # build_push NAME CONTEXT [docker build args...]
-  local image="$AR_PATH/$1:$TAG"
-  docker build -t "$image" "${@:3}" "$2"
-  docker push "$image"
-}
-build_push api . -f api/Dockerfile
-build_push web web
-build_push scorer docs-provided/problem-statement/sdoc-hackathon-docker/server
-
-# Cloud Storage volume flags: replace on update, plain add on first create.
-set_uploads_flags() { # set_uploads_flags services|jobs NAME
-  UPLOADS=(--add-volume "name=uploads,type=cloud-storage,bucket=$BUCKET,mount-options=uid=10001;gid=10001"
-           --add-volume-mount "volume=uploads,mount-path=/data/uploads")
-  if gcloud run "$1" describe "$2" --region "$REGION" >/dev/null 2>&1; then
-    UPLOADS=(--clear-volumes --clear-volume-mounts "${UPLOADS[@]}")
-  fi
-}
-
-echo "==> sdoc-scorer (private)"
-gcloud run deploy sdoc-scorer --image "$AR_PATH/scorer:$TAG" --region "$REGION" \
-  --service-account "$SCORER_SA" --no-allow-unauthenticated --port 8000 \
-  --cpu 1 --memory 512Mi --min-instances 0 --max-instances 1 --cpu-throttling \
-  --set-secrets "/secrets/ground_truth.json=GROUND_TRUTH:latest" --quiet
-gcloud run services add-iam-policy-binding sdoc-scorer --region "$REGION" \
-  --member "serviceAccount:$API_SA" --role roles/run.invoker --quiet >/dev/null
-
-API_ENV="RUN_EXECUTOR=cloudrun-job,GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=$REGION,WORKER_JOB=$WORKER_JOB,SCORER_URL=$SCORER_URL,SCORER_AUTH=gcp-id-token,LOG_FORMAT=json,CORS_ORIGINS=$WEB_URL"
-API_SECRETS="NEON_DB_URI=NEON_DB_URI:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,DEMO_PASSCODE=DEMO_PASSCODE:latest"
-
-echo "==> $WORKER_JOB (job)"
-set_uploads_flags jobs "$WORKER_JOB"
-gcloud run jobs deploy "$WORKER_JOB" --image "$AR_PATH/api:$TAG" --region "$REGION" \
-  --service-account "$API_SA" --command python --args=-m,pipeline.worker,seed \
-  --tasks 1 --parallelism 1 --max-retries 1 --task-timeout 1800s --cpu 1 --memory 1Gi \
-  --set-env-vars "$API_ENV" --set-secrets "$API_SECRETS" "${UPLOADS[@]}" --quiet
-gcloud run jobs add-iam-policy-binding "$WORKER_JOB" --region "$REGION" \
-  --member "serviceAccount:$API_SA" --role roles/run.jobsExecutorWithOverrides --quiet >/dev/null
-
-echo "==> sdoc-api"
-set_uploads_flags services sdoc-api
-gcloud run deploy sdoc-api --image "$AR_PATH/api:$TAG" --region "$REGION" \
-  --service-account "$API_SA" --allow-unauthenticated --port 8000 \
-  --cpu 1 --memory 1Gi --min-instances 0 --max-instances 2 --concurrency 40 --timeout 300 \
-  --cpu-throttling --cpu-boost --execution-environment gen2 \
-  --set-env-vars "$API_ENV" --set-secrets "$API_SECRETS" "${UPLOADS[@]}" --quiet
-
-echo "==> sdoc-web"
-gcloud run deploy sdoc-web --image "$AR_PATH/web:$TAG" --region "$REGION" \
-  --service-account "$WEB_SA" --allow-unauthenticated --port 3000 \
-  --cpu 1 --memory 512Mi --min-instances 0 --max-instances 2 --concurrency 80 \
-  --cpu-throttling --cpu-boost --set-env-vars "API_URL=$API_URL" --quiet
-
-echo
-echo "web: $WEB_URL"
-echo "api: $API_URL"
-```
-
-Create `scripts/gcp/smoke.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Post-deploy checks against the live URLs. Fails loudly.
-#   PROJECT_ID=... REGION=... bash scripts/gcp/smoke.sh
-set -euo pipefail
-source "$(dirname "$0")/common.sh"
-PROJECT_NUMBER="$(project_number)"
-export PROJECT_NUMBER
-WEB_URL="$(service_url sdoc-web)"
-API_URL="$(service_url sdoc-api)"
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
-code() { curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$@"; }
-
-for i in 1 2 3; do [[ "$(code "$WEB_URL/")" == 200 ]] && break; sleep 5; done
-[[ "$(code "$WEB_URL/")" == 200 ]] || fail "web / is not 200"
-health="$(curl -s --max-time 60 "$API_URL/health")"
-"$PY" -c '
-import json, sys
-h = json.loads(sys.argv[1])
-assert h["writes_protected"] is True, "writes are NOT protected (DEMO_PASSCODE empty?)"
-assert h["data_dir"]["present"], "dataset missing from the image"
-assert h["database"]["ok"], "database unreachable"
-assert h["run_executor"] == "cloudrun-job", "api is not using the worker job"
-' "$health" || fail "api /health (see above)"
-[[ "$(code -X POST "$API_URL/api/pipeline/run")" == 401 ]] || fail "unauthenticated run was not refused"
-[[ "$(code -X POST "$WEB_URL/api/pipeline/run")" == 401 ]] || fail "web proxy did not reach the api"
-n="$(curl -s --max-time 60 "$API_URL/api/emails" | "$PY" -c 'import json,sys; print(len(json.load(sys.stdin)))')"
-(( n >= 520 )) || fail "expected at least 520 emails, got $n (seed with demo-reset.sh)"
-echo "smoke OK: $WEB_URL"
-```
-
-Create `scripts/gcp/demo-reset.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Remove uploads + their reviews, reload the dataset, run every email, score.
-# Also the first-time seed.
-#   PROJECT_ID=... REGION=... bash scripts/gcp/demo-reset.sh
-set -euo pipefail
-source "$(dirname "$0")/common.sh"
-gcloud run jobs execute "$WORKER_JOB" --region "$REGION" --args=-m,pipeline.worker,seed,--reset --wait
-```
-
-- [ ] **Step 6: Run the selftest**
-
-Run: `bash scripts/gcp/selftest.sh`
-Expected: `scripts/gcp selftest OK`
-
-- [ ] **Step 7: Run it in CI**
-
-In `.github/workflows/ci.yml`, job `api`, add this step directly after `- run: uv run ruff check api`:
-
-```yaml
-      - run: bash scripts/gcp/selftest.sh
-```
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add scripts/gcp .github/workflows/ci.yml
-git update-index --chmod=+x scripts/gcp/*.sh
-git commit -m "Add GCP bootstrap, secrets, deploy, smoke and reset scripts
-
-Idempotent, budget-capped, and credential-free for everyone but the
-operator. An offline selftest runs in CI.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+### Task 13: GCP scripts and billing guard before deployment
+
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
+
+Read the amendment's billing-guard operation first. The checked-in PowerShell guard setup supersedes the original Bash kill-switch example.
+
+- [ ] Choose cutoff/currency, deploy guard in dry-run, observe the above-threshold no-op event, then arm. Confirm budget filters, retry delivery, private trigger identity and narrow runtime IAM.
+- [ ] Bootstrap only `averis-email-system` (969206696114), region `asia-southeast1`, billing account `015CE1-381F1A-582702`. Every command passes an explicit project.
+- [ ] Refuse absent/disabled/wrong billing. Never call `gcloud billing projects link` in normal bootstrap or deploy.
+- [ ] Enable required APIs; configure Artifact Registry cleanup, GCS lifecycle, secrets and scoped identities. Include function build artifacts in storage accounting.
+- [ ] Build/push API and scorer images only; resolve deployed URLs from service status, then configure worker and API.
+- [ ] Add offline script checks for target selection, quoting, missing settings, no credentials in output, and no relink path.
+- [ ] Before launching jobs enforce a database-backed active-run limit and idempotent dispatch; per-execution parallelism alone is insufficient.
 
 ---
 
-### Task 14: First cloud deploy (checkpoint: live URL)
+### Task 14: First backend deploy and Vercel live URL
 
-This task is operational. Steps marked **OPERATOR** are run by the user; the implementer must not run them or read their output files. Stop and hand over at each OPERATOR step.
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-**Interfaces:**
-- Produces: a live `WEB_URL` / `API_URL`, a seeded and scored database, and the five GitHub variable values printed by bootstrap.
 
-- [ ] **Step 1: Pre-flight (implementer)**
-
-```bash
-docker info --format '{{.ServerVersion}}'
-gcloud auth list --format="value(account)" --filter=status:ACTIVE
-gcloud billing accounts list --format="value(name,open)"
-test -f secrets/ground_truth.json && echo key-present
-```
-
-Expected: a Docker version, the user's account, at least one open billing account, `key-present`.
-
-- [ ] **Step 2: OPERATOR — put the rotated `.env` at the repo root**
-
-The `.env` must hold `NEON_DB_URI` and `OPENROUTER_API_KEY`. Both were exposed in chat on 2026-09-20 and **must be rotated first** (Neon: reset the `neondb_owner` password; OpenRouter: delete and recreate the key). The implementer never reads this file.
-
-Region is already known and needs no script run: Neon is on `aws ap-southeast-1`, so `REGION=asia-southeast1`. (`neon-region.sh` still exists for other environments and is covered by the selftest.)
-
-- [ ] **Step 3: Confirm the target before creating anything**
-
-These are already verified and need no new project:
-
-```bash
-gcloud projects describe averis-email-system --format="value(projectId,projectNumber)"   # averis-email-system  969206696114
-gcloud billing projects describe averis-email-system --format="value(billingAccountName,billingEnabled)"  # billingAccounts/015CE1-381F1A-582702  True
-```
-
-```bash
-export PROJECT_ID=averis-email-system REGION=asia-southeast1 \
-       BILLING_ACCOUNT=015CE1-381F1A-582702 ALERT_EMAIL=<confirm with the user>
-```
-
-Ask the user only for `ALERT_EMAIL`, and confirm that bootstrap will add Cloud Run, Artifact Registry, Secret Manager, Storage, Monitoring and budget resources to this **existing** project. Note the spend is capped by scale-to-zero, instance limits, a US$5 alert budget and (Task 18b) a $10 kill switch. **Proceed only on an explicit yes.**
-
-- [ ] **Step 4: Bootstrap**
-
-```bash
-export PROJECT_ID=<confirmed id> REGION=<gcp region> BILLING_ACCOUNT=<confirmed account> ALERT_EMAIL=<confirmed email>
-bash scripts/gcp/bootstrap.sh
-```
-
-Expected: every `==>` step completes, then the "GitHub repo variables" block. Save that block for Task 19.
-
-- [ ] **Step 5: OPERATOR — populate secrets**
-
-```bash
-bash scripts/gcp/set-secrets.sh .env
-```
-
-Expected: four `new version added` lines. The operator keeps the passcode for the submission form.
-
-- [ ] **Step 6: Deploy**
-
-Run: `bash scripts/gcp/deploy.sh`
-Expected: three images pushed, then `web: https://sdoc-web-<n>.<region>.run.app` and `api: …`.
-If the job deploy rejects the Cloud Storage volume ("requires the second generation execution environment"), add `--execution-environment gen2` to the `gcloud run jobs deploy` line in `deploy.sh`, commit that fix, and rerun.
-
-- [ ] **Step 7: Seed, then smoke**
-
-Run: `bash scripts/gcp/demo-reset.sh`, then `bash scripts/gcp/smoke.sh`
-Expected: the job execution completes successfully (about 1–3 min), then `smoke OK: https://sdoc-web-…`.
-Check the job logs for the score line:
-
-```bash
-gcloud logging read 'resource.type="cloud_run_job" AND jsonPayload.message:"scored seed run"' --limit 1 --format='value(jsonPayload.message)'
-```
-
-Expected: `scored seed run: final_score=1.0`, or the current score.
-
-- [ ] **Step 8: Manual check in a private browser window**
-
-Open `WEB_URL`. The dashboard lists the emails. Open `email_004`: the consignee and notify-party mismatch shows side by side. The Review queue lists escalations. Write buttons show "Unlock reviewer mode…". Unlock with the passcode, then confirm one case.
-
-- [ ] **Step 9: Commit any fixes made during this task**
-
-If `deploy.sh` needed the gen2 fix:
-
-```bash
-git add scripts/gcp/deploy.sh
-git commit -m "Run the worker job on the second-generation runtime
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+- [ ] Complete Tasks 6–13 and verify the guard is armed before app deployment.
+- [ ] Operator populates secrets without printing them. API must report writes protected and scorer must refuse unauthenticated requests.
+- [ ] Deploy scorer, worker and API; seed dataset and establish the benchmark run/score.
+- [ ] Create/configure the Vercel project with root `web`, server-side `API_URL`, native build and the chosen eligible plan. Keep production API_URL out of default previews.
+- [ ] Test signed-out public reads, reviewer writes, run completion, private scorer, durable uploads and error paths on the actual public URL.
+- [ ] Record deployment URLs, commit and guard state. No local build or mock test substitutes for this checkpoint.
 
 ---
 
 ### Task 15: Reprocess one email (visible, retryable failures)
+
+> **Required correction:** the historical thread/`wait_for` example below is not hard cancellation. Add processing deadlines and duplicate prevention, or move processing into the durable worker before enabling retry in production. See the amendment.
 
 **Files:**
 - Create: `api/app/services/processing.py`, `api/tests/test_processing.py`
@@ -3514,7 +2381,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `process_one`, `ProcessOutcome` (Task 15); `emails_repo.create_upload` (Task 4); `settings.uploads_subdir`, `settings.resolved_data_dir` (Task 2).
-- Produces: in `app.services.intake`, the constants `MAX_FILES=4`, `MAX_FILE_BYTES=5 MiB`, `MAX_TOTAL_BYTES=10 MiB`, `MAX_SENDER=200`, `MAX_SUBJECT=300`, `MAX_BODY=20000`, `ALLOWED_SUFFIXES`, and `IntakeError(ValueError)`, `IntakeFile(name, data)`, `safe_filename(raw, taken) -> str`, `check_content(name, data)`, `validate_submission(sender, subject, body, uploads) -> list[IntakeFile]`, `new_email_id(now=None, token=None) -> str`, `save_files(data_dir, subdir, email_id, files) -> list[str]`, `build_record(email_id, sender, subject, body, attachments) -> dict`. The endpoint is `POST /api/intake` (multipart fields `sender`, `subject`, `body`, `files[]`), returning `201 ProcessOutcome`, or `422 {"detail": str}` on invalid input.
+- Produces: in `app.services.intake`, the constants `MAX_FILES=4`, `MAX_FILE_BYTES=3 MiB`, `MAX_TOTAL_BYTES=3 MiB`, `MAX_SENDER=200`, `MAX_SUBJECT=300`, `MAX_BODY=20000`, `ALLOWED_SUFFIXES`, and `IntakeError(ValueError)`, `IntakeFile(name, data)`, `safe_filename(raw, taken) -> str`, `check_content(name, data)`, `validate_submission(sender, subject, body, uploads) -> list[IntakeFile]`, `new_email_id(now=None, token=None) -> str`, `save_files(data_dir, subdir, email_id, files) -> list[str]`, `build_record(email_id, sender, subject, body, attachments) -> dict`. The endpoint is `POST /api/intake` (multipart fields `sender`, `subject`, `body`, `files[]`), returning `201 ProcessOutcome`, or `422 {"detail": str}` on invalid input.
 
 - [ ] **Step 1: Add the multipart dependency**
 
@@ -3580,7 +2447,7 @@ def test_valid_submission_passes():
     ([("fake.pdf", b"hello")], "not a PDF"),
     ([("sheet.xlsx", b"hello")], "not a valid xlsx"),
     ([("notes.txt", b"\xff\xfe\xfa")], "not UTF-8"),
-    ([("big.txt", b"x" * (intake.MAX_FILE_BYTES + 1))], "larger than 5 MB"),
+    ([("big.txt", b"x" * (intake.MAX_FILE_BYTES + 1))], "larger than 3 MiB"),
     ([(f"f{i}.txt", b"x") for i in range(intake.MAX_FILES + 1)], "at most 4"),
 ])
 def test_bad_files_are_rejected_with_a_reason(uploads, message):
@@ -3590,7 +2457,7 @@ def test_bad_files_are_rejected_with_a_reason(uploads, message):
 
 def test_total_size_is_capped():
     chunk = b"x" * (intake.MAX_FILE_BYTES - 10)
-    with pytest.raises(intake.IntakeError, match="10 MB"):
+    with pytest.raises(intake.IntakeError, match="3 MiB"):
         intake.validate_submission("ops@example.com", "Check", "", [(f"f{i}.txt", chunk) for i in range(3)])
 
 
@@ -3687,8 +2554,8 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 MAX_FILES = 4
-MAX_FILE_BYTES = 5 * 1024 * 1024
-MAX_TOTAL_BYTES = 10 * 1024 * 1024
+MAX_FILE_BYTES = 3 * 1024 * 1024
+MAX_TOTAL_BYTES = 3 * 1024 * 1024
 MAX_SENDER = 200
 MAX_SUBJECT = 300
 MAX_BODY = 20_000
@@ -3754,10 +2621,10 @@ def validate_submission(sender: str, subject: str, body: str,
     for raw_name, data in uploads:
         name = safe_filename(raw_name, taken)
         if len(data) > MAX_FILE_BYTES:
-            raise IntakeError(f"{name} is larger than 5 MB.")
+            raise IntakeError(f"{name} is larger than 3 MiB.")
         total += len(data)
         if total > MAX_TOTAL_BYTES:
-            raise IntakeError("Attachments are limited to 10 MB in total.")
+            raise IntakeError("Attachments are limited to 3 MiB in total.")
         if PurePosixPath(name).suffix not in ALLOWED_SUFFIXES:
             raise IntakeError(f"{name} is not allowed: use .txt, .pdf, .docx or .xlsx.")
         check_content(name, data)
@@ -4048,7 +2915,7 @@ export default function IntakeForm() {
     <label>From<input required value={sender} onChange={e => setSender(e.target.value)} maxLength={200} placeholder="sender@company.com"/></label>
     <label>Subject<input required value={subject} onChange={e => setSubject(e.target.value)} maxLength={300}/></label>
     <label>Body<textarea rows={6} value={body} onChange={e => setBody(e.target.value)} maxLength={20000}/></label>
-    <label>Attachments (up to 4 · .txt .pdf .docx .xlsx · 5 MB each)<input type="file" multiple accept=".txt,.pdf,.docx,.xlsx" onChange={e => setFiles(Array.from(e.target.files ?? []).slice(0, 4))}/></label>
+    <label>Attachments (up to 4 · .txt .pdf .docx .xlsx · 3 MiB each)<input type="file" multiple accept=".txt,.pdf,.docx,.xlsx" onChange={e => setFiles(Array.from(e.target.files ?? []).slice(0, 4))}/></label>
     {files.length > 0 && <p className="muted">{files.map(f => f.name).join(" · ")}</p>}
     <LockedHint action="submit an email"/>
     <div className="actions"><button disabled={busy || !unlocked}>{busy ? "Checking documents…" : "Check this email"}</button></div>
@@ -4131,12 +2998,14 @@ Create `scripts/gcp/monitoring.sh`:
 ```bash
 #!/usr/bin/env bash
 # Uptime checks every 5 min from 3 regions on web /healthz and api /livez.
-# They also keep the scale-to-zero services warm, without waking Neon.
+# Process liveness only: no promise that instances remain warm; never wake Neon.
 # One alert policy emails ALERT_EMAIL when either check keeps failing.
 #   PROJECT_ID=... REGION=... ALERT_EMAIL=... bash scripts/gcp/monitoring.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 : "${ALERT_EMAIL:?set ALERT_EMAIL}"
+: "${WEB_HOST:?set WEB_HOST to the deployed Vercel production hostname}"
+: "${API_HOST:?set API_HOST from the deployed Cloud Run API status URL}"
 source ./common.sh
 MON="https://monitoring.googleapis.com/v3/projects/$PROJECT_ID"
 PROJECT_NUMBER="$(project_number)"
@@ -4166,8 +3035,8 @@ print(json.dumps({
   echo "$id"
 }
 
-WEB_CHECK="$(ensure_uptime sdoc-web "sdoc-web-$PROJECT_NUMBER.$REGION.run.app" /healthz)"
-API_CHECK="$(ensure_uptime sdoc-api-livez "sdoc-api-$PROJECT_NUMBER.$REGION.run.app" /livez)"
+WEB_CHECK="$(ensure_uptime sdoc-web "$WEB_HOST" /healthz)"
+API_CHECK="$(ensure_uptime sdoc-api-livez "$API_HOST" /livez)"
 CHANNEL="$(find_channel "$ALERT_EMAIL")"
 [[ -n "$CHANNEL" ]] || { echo "no alert channel for $ALERT_EMAIL; run bootstrap.sh first" >&2; exit 1; }
 
@@ -4208,543 +3077,41 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 18b: Billing kill switch (hard stop at $10)
+### Task 18b: Billing disconnect guard — execute before Task 14
 
-Requested by the user on top of the spec's alert-only budget. It is armed at **$10**, double the alert budget, because unlinking billing takes the whole demo down and needs a manual relink. Budget data lags real spend by hours, so this is a backstop, not a rate limiter.
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-**Files:**
-- Create: `scripts/gcp/killswitch/decision.py`, `scripts/gcp/killswitch/main.py`, `scripts/gcp/killswitch/requirements.txt`, `scripts/gcp/killswitch.sh`, `api/tests/test_killswitch.py`
+This task has moved earlier. Implementation is in `scripts/gcp/killswitch/` and `scripts/gcp/deploy-cost-guard.ps1`; tests are `api/tests/test_killswitch.py`.
 
-**Why the split:** the decision rule lives in `decision.py`, which imports only the standard library, so the test suite (and CI, which installs only this project's dependencies) can import it without `functions-framework` or any GCP client.
+Follow the amendment's dry-run → event-delivery proof → arm procedure. The user selected **RM40 per month in MYR**, plus **Vercel Hobby**, on 2026-09-20. Budget reporting is delayed, and disconnecting billing can stop or delete project resources. It cannot guarantee an exact dollar cap or stop Vercel, Neon or OpenRouter billing. Never publish a synthetic over-threshold event after arming.
 
-**Interfaces:**
-- Consumes: `common.sh` names; the budget from Task 13.
-- Produces: Pub/Sub topic `budget-alerts`, budget `sdoc-verifier-killswitch` ($10 → Pub/Sub), service account `sdoc-killswitch` with `roles/billing.projectManager`, and Cloud Function (gen2) `sdoc-billing-killswitch` running `stop_billing`. The decision logic lives in `should_stop(payload: dict) -> bool` so it is testable without GCP.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `api/tests/test_killswitch.py`:
-
-```python
-"""The billing kill switch fires only when reported cost reaches the budget.
-
-The function itself runs on Cloud Functions; only its decision rule is
-imported here, so the test needs no GCP libraries.
-"""
-import importlib.util
-import sys
-from pathlib import Path
-
-import pytest
-
-SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "gcp" / "killswitch" / "decision.py"
-
-
-def _load():
-    spec = importlib.util.spec_from_file_location("killswitch_decision", SOURCE)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["killswitch_decision"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.mark.parametrize("payload,expected", [
-    ({"costAmount": 10.0, "budgetAmount": 10.0}, True),
-    ({"costAmount": 12.5, "budgetAmount": 10.0}, True),
-    ({"costAmount": 9.99, "budgetAmount": 10.0}, False),
-    ({"costAmount": 0, "budgetAmount": 10.0}, False),
-    ({}, False),
-    ({"costAmount": "not-a-number", "budgetAmount": 10.0}, False),
-    ({"costAmount": 10.0, "budgetAmount": 0}, False),
-])
-def test_only_a_real_overrun_stops_billing(payload, expected):
-    assert _load().should_stop(payload) is expected
-```
-
-Note: `main.py` must keep its GCP imports inside the functions that use them, so importing the module is side-effect free.
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `T` with `api/tests/test_killswitch.py`
-Expected: FAIL — `scripts/gcp/killswitch/main.py` does not exist.
-
-- [ ] **Step 3: Write the function**
-
-Create `scripts/gcp/killswitch/decision.py`:
-
-```python
-"""When the kill switch should fire. Standard library only, so the test
-suite can import it without the Cloud Functions runtime."""
-
-
-def should_stop(payload: dict) -> bool:
-    """True only when reported cost has reached a positive budget."""
-    try:
-        cost = float(payload.get("costAmount", 0))
-        budget = float(payload.get("budgetAmount", 0))
-    except (TypeError, ValueError):
-        return False
-    return budget > 0 and cost >= budget
-```
-
-Create `scripts/gcp/killswitch/main.py`:
-
-```python
-"""Unlink the billing account when the kill-switch budget is reached.
-
-Triggered by Pub/Sub messages from a Cloud Billing budget. Budget updates
-arrive continuously, most of them well under budget, so the decision rule is
-kept separate and tested in api/tests/test_killswitch.py.
-
-WARNING: unlinking billing stops every service in the project at once.
-Recovery is manual — see docs/deploy.md.
-"""
-import base64
-import json
-import logging
-import os
-
-import functions_framework
-from decision import should_stop
-
-TARGET_PROJECT_ID = os.environ.get("TARGET_PROJECT_ID", "")
-log = logging.getLogger("killswitch")
-
-
-def _disable_billing(project_id: str) -> str:
-    from googleapiclient import discovery
-
-    billing = discovery.build("cloudbilling", "v1", cache_discovery=False)
-    name = f"projects/{project_id}"
-    try:
-        if not billing.projects().getBillingInfo(name=name).execute().get("billingEnabled"):
-            return "billing was already disabled"
-    except Exception:  # keep going: the unlink itself is what matters
-        log.warning("could not read billing info; attempting the unlink anyway", exc_info=True)
-    billing.projects().updateBillingInfo(name=name, body={"billingAccountName": ""}).execute()
-    return "billing disabled"
-
-
-@functions_framework.cloud_event
-def stop_billing(cloud_event) -> str:
-    payload = json.loads(base64.b64decode(cloud_event.data["message"]["data"]).decode("utf-8"))
-    if not should_stop(payload):
-        return f"under budget: {payload.get('costAmount')} of {payload.get('budgetAmount')}"
-    if not TARGET_PROJECT_ID:
-        raise RuntimeError("TARGET_PROJECT_ID is not set")
-    outcome = _disable_billing(TARGET_PROJECT_ID)
-    log.error("KILL SWITCH: %s for %s (cost %s of %s)", outcome, TARGET_PROJECT_ID,
-              payload.get("costAmount"), payload.get("budgetAmount"))
-    return outcome
-```
-
-Create `scripts/gcp/killswitch/requirements.txt`:
-
-```text
-functions-framework==3.*
-google-api-python-client==2.*
-```
-
-- [ ] **Step 4: Run the test**
-
-Run: `T` with `api/tests/test_killswitch.py`
-Expected: `7 passed`. The test loads `decision.py`, which imports nothing beyond the standard library, so no Cloud Functions packages are needed locally or in CI.
-
-- [ ] **Step 5: Write the deploy script**
-
-Create `scripts/gcp/killswitch.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Hard stop: a $10 budget publishes to Pub/Sub and a Cloud Function unlinks
-# the billing account. Armed at 2x the $5 alert budget, because this takes the
-# whole demo down and recovery is manual (docs/deploy.md).
-#   PROJECT_ID=... REGION=... BILLING_ACCOUNT=... bash scripts/gcp/killswitch.sh
-set -euo pipefail
-cd "$(dirname "$0")"
-: "${BILLING_ACCOUNT:?set BILLING_ACCOUNT}"
-KILL_BUDGET_USD="${KILL_BUDGET_USD:-10}"
-source ./common.sh
-quiet() { "$@" >/dev/null 2>&1; }
-KILL_SA="sdoc-killswitch@$PROJECT_ID.iam.gserviceaccount.com"
-TOPIC=budget-alerts
-PROJECT_NUMBER="$(project_number)"
-
-echo "==> APIs"
-# compute: gen2 functions build with the default compute service account,
-# which only exists once the Compute Engine API is on
-gcloud services enable pubsub.googleapis.com cloudfunctions.googleapis.com \
-  cloudbuild.googleapis.com eventarc.googleapis.com compute.googleapis.com
-
-echo "==> topic $TOPIC"
-quiet gcloud pubsub topics describe "$TOPIC" || gcloud pubsub topics create "$TOPIC"
-
-echo "==> service account + billing permission"
-quiet gcloud iam service-accounts describe "$KILL_SA" ||
-  gcloud iam service-accounts create sdoc-killswitch --display-name="sdoc-killswitch"
-gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$KILL_SA" \
-  --role=roles/billing.projectManager --condition=None >/dev/null
-# Cloud Build needs to build the function image in a fresh project. The
-# default compute SA can take a moment to appear after enabling the API.
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role=roles/cloudbuild.builds.builder --condition=None >/dev/null ||
-  echo "    note: could not grant the build role yet; if the deploy fails, rerun this script"
-
-echo "==> function sdoc-billing-killswitch"
-gcloud functions deploy sdoc-billing-killswitch \
-  --gen2 --region="$REGION" --runtime=python312 --source=./killswitch \
-  --entry-point=stop_billing --trigger-topic="$TOPIC" \
-  --service-account="$KILL_SA" --set-env-vars="TARGET_PROJECT_ID=$PROJECT_ID" \
-  --max-instances=1 --memory=256Mi --quiet
-
-echo "==> budget sdoc-verifier-killswitch (US\$$KILL_BUDGET_USD -> $TOPIC)"
-if ! gcloud billing budgets list --billing-account="$BILLING_ACCOUNT" --format="value(displayName)" | grep -qx "sdoc-verifier-killswitch"; then
-  gcloud billing budgets create --billing-account="$BILLING_ACCOUNT" \
-    --display-name="sdoc-verifier-killswitch" --budget-amount="${KILL_BUDGET_USD}USD" \
-    --filter-projects="projects/$PROJECT_NUMBER" --threshold-rule=percent=1.0 \
-    --all-updates-rule-pubsub-topic="projects/$PROJECT_ID/topics/$TOPIC" >/dev/null
-fi
-
-cat <<EOF
-
-Kill switch armed: billing is unlinked automatically if reported spend on
-$PROJECT_ID reaches US\$$KILL_BUDGET_USD. Budget data lags by hours.
-Recovery: relink billing (console -> Billing -> link account), then
-  bash scripts/gcp/deploy.sh
-Disarm:  gcloud functions delete sdoc-billing-killswitch --region=$REGION
-EOF
-```
-
-- [ ] **Step 6: Verify syntax, then arm it**
-
-Run: `bash scripts/gcp/selftest.sh`, then `bash scripts/gcp/killswitch.sh` with `PROJECT_ID`, `REGION` and `BILLING_ACCOUNT` exported.
-Expected: `selftest OK`; the function deploys (the first build takes 1–3 min) and the script prints "Kill switch armed".
-If the build fails with a Cloud Build or Artifact Registry permission error, wait a minute for the IAM grant to propagate and rerun; the script is idempotent.
-
-- [ ] **Step 7: Prove it without spending anything**
-
-Publish a fake under-budget message and confirm the function declines to act:
-
-```bash
-gcloud pubsub topics publish budget-alerts --message='{"costAmount":1.0,"budgetAmount":10.0}'
-sleep 30
-gcloud functions logs read sdoc-billing-killswitch --region="$REGION" --limit=10 | grep -i "under budget"
-gcloud billing projects describe "$PROJECT_ID" --format="value(billingEnabled)"
-```
-
-Expected: a log line `under budget: 1.0 of 10.0`, and `billingEnabled` still `True`.
-**Do not publish a message at or over the budget** — that really would disable billing.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add scripts/gcp/killswitch scripts/gcp/killswitch.sh api/tests/test_killswitch.py
-git commit -m "Add a $10 billing kill switch behind the alert budget
-
-Unlinks billing if reported spend reaches twice the alert budget. Armed
-high on purpose: it stops the whole demo and recovery is manual.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+The old $10 hard-stop claim, unvalidated payload handler, automatic relink, and invalid budget CLI flag are withdrawn. Run unit tests and lint; independently verify cloud IAM, locked-association status, retry policy and delivery before claiming protection is active.
 
 ---
 
-### Task 19: Deploy on merge
+### Task 19: Deploy only after all CI gates pass
 
-**Files:**
-- Create: `.github/workflows/deploy.yml`
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-**Interfaces:**
-- Consumes: `deploy.sh`, `smoke.sh` (Task 13); the repo variables printed by bootstrap (Task 14).
 
-- [ ] **Step 1: Write the workflow**
-
-Create `.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
-
-permissions:
-  contents: read
-  id-token: write      # GitHub OIDC -> Workload Identity Federation, no keys
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - run: uv sync --frozen
-      - run: uv run pytest api/tests -q
-        env:
-          DATA_DIR: docs-provided/problem-statement/sdoc-hackathon-bundle
-
-  deploy:
-    needs: test
-    if: vars.GCP_PROJECT_ID != ''
-    runs-on: ubuntu-latest
-    env:
-      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-      PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
-      REGION: ${{ vars.GCP_REGION }}
-      IMAGE_TAG: ${{ github.sha }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOYER_SA }}
-      - uses: google-github-actions/setup-gcloud@v2
-      - run: bash scripts/gcp/deploy.sh
-      - run: bash scripts/gcp/smoke.sh
-```
-
-- [ ] **Step 2: Validate the YAML locally**
-
-Run: `uv run python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/deploy.yml')); print('yaml-ok')"`
-Expected: `yaml-ok`. If PyYAML is missing, use `uv run --with pyyaml python -c ...`.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add .github/workflows/deploy.yml
-git commit -m "Deploy to Cloud Run on every merge to main
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
-
-- [ ] **Step 4: Hand the variables to the repo admin**
-
-The user does not have admin on `applejuice8/secret-hack`. Give Colin (the repo owner) these commands, filled with the bootstrap output:
-
-```bash
-gh variable set GCP_PROJECT_ID     -R applejuice8/secret-hack -b "<value>"
-gh variable set GCP_PROJECT_NUMBER -R applejuice8/secret-hack -b "<value>"
-gh variable set GCP_REGION         -R applejuice8/secret-hack -b "<value>"
-gh variable set GCP_WIF_PROVIDER   -R applejuice8/secret-hack -b "<value>"
-gh variable set GCP_DEPLOYER_SA    -R applejuice8/secret-hack -b "<value>"
-```
-
-Until they are set, the `deploy` job is skipped, and `deploy.sh` from a laptop remains the way to deploy.
+- [ ] Require API lint/tests, guard tests, web TypeScript/build/proxy checks and container smoke.
+- [ ] Deploy GCP services/jobs through repository/ref-restricted WIF with concurrency control and billing-enabled preflight.
+- [ ] Deploy/promote Vercel only after successful checks. Git integration requires an explicit check gate; otherwise deploy from the gated workflow using a scoped Vercel credential.
+- [ ] Never give a deployment job billing relink rights or make it reset/rearm the cost guard.
+- [ ] Record revision/URL and smoke-test; document rollback separately for GCP and Vercel.
 
 ---
 
-### Task 20: Runbook, README, and live acceptance
+### Task 20: Runbook and live acceptance
 
-**Files:**
-- Create: `docs/deploy.md`
-- Modify: `README.md`
+See [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md).
 
-- [ ] **Step 1: Write the runbook**
 
-Create `docs/deploy.md`:
-
-````markdown
-# Deploying SDOC Verifier to Google Cloud Run
-
-Runbook for the public demo. Design and budget rationale:
-[`docs/superpowers/specs/2026-09-20-cloud-deploy-design.md`](superpowers/specs/2026-09-20-cloud-deploy-design.md).
-
-## What runs where
-
-| Piece | Cloud Run resource | Access |
-|---|---|---|
-| `sdoc-web` | service (Next.js standalone) | public |
-| `sdoc-api` | service (FastAPI) | public URL; writes need the reviewer passcode |
-| `sdoc-scorer` | service (provided scorer) | private: only `sdoc-api` may call it |
-| `sdoc-worker` | job (api image) | started by `sdoc-api` per run, or by an operator |
-
-Also: Artifact Registry `sdoc` (keeps 3 images), Secret Manager (`NEON_DB_URI`,
-`OPENROUTER_API_KEY`, `DEMO_PASSCODE`, `GROUND_TRUTH`), bucket
-`<project>-sdoc-uploads` mounted at `/data/uploads` (30-day expiry), uptime checks
-and an alert policy, and a US$5 budget.
-
-## Prerequisites
-
-- `gcloud` logged in, on a billing account you administer
-- Docker running, Python 3 on PATH, bash (Git Bash on Windows)
-- The team's `.env` at the repo root, and `secrets/ground_truth.json` (see `secrets/README.md`)
-
-## One-time setup
-
-```bash
-bash scripts/gcp/neon-region.sh .env          # prints the matching GCP region
-export PROJECT_ID=sdoc-verifier-<6 hex> REGION=<gcp region> \
-       BILLING_ACCOUNT=<id> ALERT_EMAIL=<email>
-bash scripts/gcp/bootstrap.sh                 # project, APIs, IAM, bucket, budget
-bash scripts/gcp/set-secrets.sh .env          # operator only; asks for the passcode
-bash scripts/gcp/deploy.sh                    # build, push, deploy everything
-bash scripts/gcp/demo-reset.sh                # first seed: ingest, run, score
-bash scripts/gcp/smoke.sh                     # must print "smoke OK"
-bash scripts/gcp/monitoring.sh                # uptime checks + alert policy
-```
-
-Then a repo admin sets the five GitHub variables that `bootstrap.sh` printed
-(`gh variable set …`), and every merge to `main` deploys through
-`.github/workflows/deploy.yml`.
-
-## Everyday operations
-
-| Task | Command |
-|---|---|
-| Deploy by hand | `bash scripts/gcp/deploy.sh && bash scripts/gcp/smoke.sh` |
-| Disarm the kill switch | `gcloud functions delete sdoc-billing-killswitch --region "$REGION"` |
-| Recover after it fired | relink billing in the console, then `bash scripts/gcp/deploy.sh` |
-| Reset the demo | `bash scripts/gcp/demo-reset.sh` |
-| Rotate the passcode | `bash scripts/gcp/set-secrets.sh .env` then `deploy.sh` |
-| Recent errors | `gcloud logging read 'resource.type="cloud_run_revision" AND severity>=WARNING' --limit 50` |
-| Worker logs | `gcloud logging read 'resource.type="cloud_run_job"' --limit 50` |
-
-## Rollback
-
-```bash
-gcloud run revisions list --service sdoc-web --region "$REGION"
-gcloud run services update-traffic sdoc-web --region "$REGION" --to-revisions=<REVISION>=100
-```
-
-Do the same for `sdoc-api`. For the job:
-`gcloud run jobs update sdoc-worker --region "$REGION" --image <previous image>`.
-
-## Costs
-
-| Item | Setting | Expected |
-|---|---|---|
-| web, api | min 0 / max 2 instances, request-based billing | inside the free tier |
-| scorer | min 0 / max 1 | cents |
-| worker job | 1 task, ~1–3 min per run | cents |
-| Artifact Registry | 3 images kept | around the 0.5 GB free allowance |
-| Secret Manager, Storage, Monitoring | 4 secrets, tiny bucket, 2 uptime checks | cents |
-
-Expected spend through judging: **under US$1**. The US$5 budget only sends
-alerts; the instance caps are what actually bound spend.
-
-A second budget at US$10 is a hard stop: it publishes to the `budget-alerts`
-topic, and the `sdoc-billing-killswitch` function unlinks the billing account,
-which stops every service at once. It is armed at twice the alert budget on
-purpose, and budget data lags real spend by hours, so treat it as a backstop
-rather than a rate limiter. Recovery is manual: relink billing, then redeploy.
-
-## Teardown
-
-`gcloud projects delete "$PROJECT_ID"` stops all billing. The project can be
-restored for 30 days.
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| deploy: secret "has no versions" | run `set-secrets.sh` |
-| job deploy: volume needs gen2 | add `--execution-environment gen2` to the jobs line in `deploy.sh` |
-| intake: permission denied on `/data/uploads` | change the bucket `mount-options` in `deploy.sh` to `file-mode=777;dir-mode=777` |
-| smoke: "writes are NOT protected" | `DEMO_PASSCODE` is empty: rerun `set-secrets.sh`, then `deploy.sh` |
-| UI: "Could not start the run" (502) | rerun `deploy.sh` (re-grants `run.jobsExecutorWithOverrides`) |
-| runs never get a score | `gcloud run services get-iam-policy sdoc-scorer --region "$REGION"` must list `sdoc-api` as `run.invoker` |
-````
-
-- [ ] **Step 2: Update the README**
-
-In `README.md` section 1, replace the three service rows (`web`, `api`, `scorer`) of the service table with:
-
-```markdown
-| `web` | node:22-alpine, Next.js standalone, non-root | 3000 | Dashboard, inbox, diff view, review queue, intake, runs; proxies `/api/*` at request time |
-| `api` | python:3.13-slim (uv-built venv), non-root, dataset baked in | 8000 | Pipeline, REST API, Neon access; the same image runs the worker job |
-| `scorer` | python:3.12-slim (provided) | 8080→8000 | Evaluation against the private answer key (kept in `secrets/`, never in git) |
-```
-
-Replace section 9 ("Run it") entirely with:
-
-````markdown
-## 9. Run it
-
-```bash
-cp .env.example .env     # NEON_DB_URI; OPENROUTER_API_KEY optional; DEMO_PASSCODE optional locally
-cp <organizer zip>/data_v2/ground_truth.json secrets/   # only for the local scorer
-docker compose up --build
-```
-
-- web → http://localhost:3000 · api → http://localhost:8000 (`/docs`) ·
-  scorer → http://localhost:8080 · `curl localhost:8000/health` shows what
-  the API can reach
-
-```bash
-# first-time data load + full run + score (same command the cloud job runs)
-docker compose exec api python -m pipeline.worker seed
-```
-
-Local dev without Docker: `uv sync` · `cd web && pnpm install` ·
-`uv run uvicorn app.main:app --app-dir api --reload` · `cd web && pnpm dev`.
-
-Tests: `uv run pytest api/tests -v` · lint: `uv run ruff check api` ·
-script checks: `bash scripts/gcp/selftest.sh`. CI runs all of them on every
-push, plus `tsc --noEmit`, `next build`, and a container smoke test that boots
-both images. The API job runs with no database and no API key.
-
-## 10. Cloud deployment (Google Cloud Run)
-
-**Live demo:** <WEB_URL> · API docs: <API_URL>/docs · reviewer passcode: in
-the submission form.
-
-```
- browser ──► sdoc-web (public) ──/api/* proxy──► sdoc-api (public; writes need passcode)
-                                                   │  ├─ Neon Postgres
-                                                   │  ├─ OpenRouter
-                                                   │  ├─ gs://…-sdoc-uploads  (mounted /data/uploads)
-                                                   │  ├─ sdoc-scorer (IAM-private, ID token)
-                                                   │  └─ sdoc-worker (Cloud Run Job, one per run)
- GitHub main ──► Actions (OIDC, no keys) ──► Artifact Registry ──► Cloud Run
-```
-
-Everything scales to zero under a US$5 budget, with hard instance caps. Setup,
-operations, rollback and costs: [`docs/deploy.md`](docs/deploy.md).
-````
-
-In section 8, add these lines to the layout tree directly above the `.github/workflows/ci.yml` line:
-
-```text
-├── scripts/gcp/                bootstrap · set-secrets · deploy · smoke · reset · monitoring
-├── docs/deploy.md              Cloud Run runbook
-├── secrets/                    git-ignored (local answer key)
-├── .github/workflows/deploy.yml  deploy on merge (Workload Identity Federation)
-```
-
-and change the `web/next.config.ts` line to `│   ├── next.config.ts          standalone output (API proxy: app/api/[...path])`.
-
-Fill `<WEB_URL>` and `<API_URL>` with the real URLs from Task 14.
-
-- [ ] **Step 3: Live acceptance (the spec's checklist)**
-
-On `WEB_URL`, in a private window, confirm each item and note any failure:
-1. The dashboard loads and 520+ emails are listed.
-2. `email_004` shows the consignee and notify-party mismatch side by side.
-3. The Review queue lists 20 escalations with reasons.
-4. A write while locked is refused. Unlocking with the passcode works. Confirming a case works.
-5. Intake with the edited `clean-txt` pair gives `MISMATCH` on Gross weight.
-6. Intake with the `scanned` pair gives `NEEDS_REVIEW / Document could not be read`; **Run AI assist** returns the model's reading.
-7. **Run inbox checks** on the Runs page completes, and the score appears.
-8. Intake of a `.txt` file renamed to `.pdf` is rejected with a clear message. **Reprocess** on `email_004` adds a new result with the same verdict.
-9. `bash scripts/gcp/demo-reset.sh` removes the uploads and restores the clean state.
-10. `gcloud billing budgets list --billing-account=$BILLING_ACCOUNT` shows `sdoc-verifier` at 5 USD and `sdoc-verifier-killswitch` at 10 USD; `gcloud run services list --region $REGION` shows the three services; `gcloud billing projects describe $PROJECT_ID` still reports `billingEnabled: True`.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add docs/deploy.md README.md
-git commit -m "Document the Cloud Run deployment and link the live demo
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+- [ ] Write `docs/deploy.md` and update README from the Vercel/GCP amendment, including prerequisites, secret setup, deployment, reset, rollback and teardown.
+- [ ] Explain actual cost meters and external-provider limits; remove the under-$1 promise and any guaranteed $5 ceiling.
+- [ ] Verify public reads, locked/unlocked writes, full worker completion, explicit score lifecycle, edited sample mismatch, upload-size errors, image-only review, retry and reset on the live URL.
+- [ ] Record budget amount/currency/month, exact project filter, function dry-run=false, topic/trigger/IAM and error alert. Document manual recovery and no automatic billing relink.
+- [ ] Keep proof of deployment and a backup demo recording for cold starts/outages. These are acceptance tasks, not evidence already collected.
 
 ---
 
@@ -4753,7 +3120,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Final verification**
 
 Run: `T`, `L`, `W`, `bash scripts/gcp/selftest.sh`, `git status --short`
-Expected: `144 passed`; `All checks passed!`; the web build is green; `selftest OK`; a clean tree. `git ls-files | grep -c ground_truth` prints `0`.
+Expected: all implemented tests pass (record actual count), lint/build/proxy checks pass, and pending changes are reviewed. Verify both Vercel and GCP live acceptance plus the billing guard separately. `git ls-files | grep -c ground_truth` prints `0`.
 
 - [ ] **Step 2: Ask the user before pushing**
 
@@ -4764,11 +3131,11 @@ Ask: "Push `feat/cloud-deploy` and open a PR against `main`?" Proceed only on an
 ```bash
 git push -u origin feat/cloud-deploy
 gh pr create -R applejuice8/secret-hack --base main --head feat/cloud-deploy \
-  --title "Cloud Run deployment, reviewer passcode, live intake" \
+  --title "Vercel web, Cloud Run backend, reviewer access and cost controls" \
   --body "$(cat <<'EOF'
 Implements docs/superpowers/specs/2026-09-20-cloud-deploy-design.md.
 
-- Cloud Run: public web + api, IAM-private scorer, worker job per run; scale to zero under a US$5 budget
+- Vercel web; Cloud Run API, IAM-private scorer and worker; scale to zero with a selected MYR billing-disconnect threshold (reporting can lag)
 - Reviewer passcode on every write (reads stay open for judges)
 - Fixes the build-time /api rewrite that broke browser actions under compose (runtime proxy route)
 - Answer key removed from the repo (still in git history: team decision whether to rewrite it)
@@ -4777,7 +3144,7 @@ Implements docs/superpowers/specs/2026-09-20-cloud-deploy-design.md.
 
 Heads-up for web owners: next.config.ts rewrites() is replaced by app/api/[...path]/route.ts.
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Include only the implementation and validation actually completed; do not claim future acceptance tasks are done.
 EOF
 )"
 ```
