@@ -21,3 +21,10 @@ submission*.json
 
 # Subagent-driven development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# Private files that must never be committed (see secrets/README.md)
+secrets/*
+!secrets/README.md
+
+# pytest scratch (tests run with --basetemp=.pytest-tmp)
+.pytest-tmp/
