@@ -3,16 +3,22 @@ import sys
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from pipeline.gmail_ingest import ingest as gmail_ingest  # noqa: E402
+from pipeline.gmail_ingest import preview as gmail_preview  # noqa: E402
 
 from ...core.config import settings  # noqa: E402
 from ...repositories import gmail_accounts as accounts_repo  # noqa: E402
-from ...schemas.gmail import GmailAccountView, GmailSyncResult  # noqa: E402
+from ...schemas.gmail import (  # noqa: E402
+    GmailAccountView,
+    GmailPreviewItem,
+    GmailSyncRequest,
+    GmailSyncResult,
+)
 from ...services import gmail as gmail_client  # noqa: E402
 from ..deps import get_db  # noqa: E402
 
@@ -39,13 +45,27 @@ async def google_callback(code: str | None = None, error: str | None = None,
     return RedirectResponse(f"{settings.web_app_url}/inbox?gmail=connected")
 
 
-@router.post("/gmail/sync", response_model=GmailSyncResult)
-async def gmail_sync(query: str | None = None, s: AsyncSession = Depends(get_db)):
+@router.get("/gmail/preview", response_model=list[GmailPreviewItem])
+async def gmail_preview_list(
+    days: int = Query(default=1, ge=1, le=90, description="only preview mail from the past N days"),
+    s: AsyncSession = Depends(get_db),
+):
     account = await accounts_repo.get_primary(s)
     if account is None:
         raise HTTPException(400, "No Gmail account connected")
     try:
-        n = await gmail_ingest(query=query)
+        return await gmail_preview(days=days)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/gmail/sync", response_model=GmailSyncResult)
+async def gmail_sync(body: GmailSyncRequest, s: AsyncSession = Depends(get_db)):
+    account = await accounts_repo.get_primary(s)
+    if account is None:
+        raise HTTPException(400, "No Gmail account connected")
+    try:
+        n = await gmail_ingest(body.message_ids)
     except Exception as e:
         raise HTTPException(400, str(e))
     return GmailSyncResult(synced=n)

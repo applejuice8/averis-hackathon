@@ -18,9 +18,18 @@ services:
       - "8000:8000"
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      target: dev                          # next dev with hot reload
     environment:
       API_URL: http://api:8000            # server-side fetch (compose DNS)
+      WATCHPACK_POLLING: "true"           # reliable file watching in Docker on macOS + Windows
+      CHOKIDAR_USEPOLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./web:/app                         # live source
+      - /app/node_modules                  # keep the image's installed deps
+      - /app/.next                         # keep the container's build cache
     ports:
       - "3000:3000"
     depends_on:

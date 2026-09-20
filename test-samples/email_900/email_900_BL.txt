@@ -1,0 +1,18 @@
+BILL OF LADING (DRAFT)
+========================================
+
+SHIPPER: SUNRISE PULP & PAPER PTE LTD
+  21 JURONG PORT ROAD, #04-11; SINGAPORE 619094
+To the Order of: HELLENIC PACKAGING SA
+  14 KIFISOU AVENUE; 12131 PERISTERI, ATHENS, GREECE
+Notify Party: HELLENIC PACKAGING SA
+Load Port: LAEM CHABANG, THAILAND (THLCH)
+Discharge Port: GENOA, ITALY (ITGOA)
+Container Count: 4 x 20'GP
+Gross Weight (KG): 78,420 KG
+Export Carrier (vessel, voyage): SUNRISE VOYAGER 22 V.SV118
+Voyage: SV118
+Commodity: FOLDING BOXBOARD
+Bill of Lading No.: MAEU40915772
+Booking Ref: MAEUSG7740512
+Freight: PREPAID

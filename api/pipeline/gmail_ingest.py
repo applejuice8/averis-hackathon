@@ -18,13 +18,20 @@ from app.repositories import emails as emails_repo  # noqa: E402
 from app.repositories import gmail_accounts as accounts_repo  # noqa: E402
 from app.services import gmail as gmail_client  # noqa: E402
 
-DEFAULT_QUERY = "has:attachment newer_than:30d"
+# Mail within the chosen window is fetched (attachments optional) — never the
+# whole mailbox — so we don't pull more of the user's inbox than requested.
+DEFAULT_DAYS = 1
 _TAG_RE = re.compile(r"<[^>]+>")
 _UNSAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _window_query(days: int) -> str:
+    return f"newer_than:{max(1, days)}d"
+
+
 def _b64url(data: str) -> bytes:
-    return base64.urlsafe_b64decode(data.encode("utf-8"))
+    # Gmail base64url payloads often arrive without padding
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
 
 def _header(payload: dict, name: str) -> str:
@@ -92,28 +99,64 @@ def _save_attachments(service, msg_id: str, payload: dict, attach_dir: Path) -> 
     return rels
 
 
-def fetch_records(service, query: str, max_results: int) -> list[dict]:
-    """Gmail messages -> internal email records, writing attachments to disk."""
-    attach_dir = Path(settings.resolved_gmail_data_dir) / "attachments"
+def _attachment_names(payload: dict) -> list[str]:
+    """Attachment filenames without downloading the bytes."""
+    names = []
+    for part in _walk(payload):
+        filename = part.get("filename")
+        body = part.get("body") or {}
+        if filename and (body.get("attachmentId") or body.get("data")):
+            names.append(filename)
+    return names
+
+
+def _service(account):
+    creds = gmail_client.credentials_from_refresh_token(account.refresh_token)
+    return gmail_client.build_service(creds)
+
+
+def _list_ids(service, query: str, max_results: int) -> list[str]:
     listing = (
-        service.users()
-        .messages()
-        .list(userId="me", q=query, maxResults=max_results)
-        .execute()
+        service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
     )
-    records = []
-    for meta in listing.get("messages", []):
-        msg_id = meta["id"]
-        msg = (
-            service.users()
-            .messages()
-            .get(userId="me", id=msg_id, format="full")
-            .execute()
+    return [m["id"] for m in listing.get("messages", [])]
+
+
+def preview_records(service, query: str, max_results: int) -> list[dict]:
+    """Metadata for every message in the window; downloads nothing."""
+    items = []
+    ids = _list_ids(service, query, max_results)
+    print(f"[gmail] pulled {len(ids)} message(s) for query: {query!r}")
+    for msg_id in ids:
+        msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
+        payload = msg.get("payload", {})
+        names = _attachment_names(payload)
+        sender, subject, date = (
+            _header(payload, "From"), _header(payload, "Subject"), _header(payload, "Date")
         )
+        body = _extract_body(payload)
+        # print every fetched email so we can see the full Gmail pull
+        print(f"[gmail] {msg_id} | {date} | {sender} | {subject} | attachments={names}")
+        print(f"[gmail]   body: {body[:500]!r}")
+        items.append({
+            "message_id": msg_id,
+            "subject": subject,
+            "sender": sender,
+            "date": date,
+            "attachments": names,
+            "body": body[:4000],
+        })
+    return items
+
+
+def fetch_records(service, message_ids: list[str]) -> list[dict]:
+    """Download + map only the chosen messages into internal email records."""
+    attach_dir = Path(settings.resolved_gmail_data_dir) / "attachments"
+    records = []
+    for msg_id in message_ids:
+        msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
         payload = msg.get("payload", {})
         attachments = _save_attachments(service, msg_id, payload, attach_dir)
-        if not attachments:
-            continue  # nothing to compare — skip bodies-only mail
         records.append(
             {
                 "email_id": f"gmail_{msg_id}",
@@ -126,8 +169,8 @@ def fetch_records(service, query: str, max_results: int) -> list[dict]:
     return records
 
 
-async def ingest(query: str | None = None, max_results: int = 50) -> int:
-    """Sync the connected mailbox into Postgres; returns rows upserted."""
+async def preview(days: int = DEFAULT_DAYS, query: str | None = None, max_results: int = 50) -> list[dict]:
+    """List candidate emails for the user to pick from; writes nothing to the DB."""
     import asyncio
 
     async with SessionLocal() as s:
@@ -135,10 +178,25 @@ async def ingest(query: str | None = None, max_results: int = 50) -> int:
         if account is None:
             raise RuntimeError("no Gmail account connected")
 
+        def _run() -> list[dict]:
+            return preview_records(_service(account), query or _window_query(days), max_results)
+
+        return await asyncio.to_thread(_run)
+
+
+async def ingest(message_ids: list[str]) -> int:
+    """Import only the user-selected messages into Postgres; returns rows upserted."""
+    import asyncio
+
+    if not message_ids:
+        return 0
+    async with SessionLocal() as s:
+        account = await accounts_repo.get_primary(s)
+        if account is None:
+            raise RuntimeError("no Gmail account connected")
+
         def _fetch() -> list[dict]:
-            creds = gmail_client.credentials_from_refresh_token(account.refresh_token)
-            service = gmail_client.build_service(creds)
-            return fetch_records(service, query or DEFAULT_QUERY, max_results)
+            return fetch_records(_service(account), message_ids)
 
         records = await asyncio.to_thread(_fetch)
         n = await emails_repo.upsert_many(s, records)

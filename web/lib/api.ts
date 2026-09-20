@@ -72,6 +72,15 @@ export type GmailAccount = {
   created_at: string | null;
 };
 
+export type GmailPreviewItem = {
+  message_id: string;
+  subject: string;
+  sender: string;
+  date: string;
+  attachments: string[];
+  body: string;
+};
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${API}${path}`, { cache: "no-store" });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
