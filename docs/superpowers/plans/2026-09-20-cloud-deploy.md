@@ -37,6 +37,8 @@
 | no run error column | `runs.error` column + "Failed" badge | a worker that dies must be visible, not "Running" forever |
 | — | `scripts/gcp/selftest.sh` in CI | offline tests for the bash scripts (syntax, region mapping, no credential leakage) |
 | — | `api/tests/conftest.py` | a developer's `.env` must not change test outcomes (passcode, executor, assist flags) |
+| budgets alert only | Task 18b adds a $10 kill switch (Pub/Sub → Cloud Function → unlink billing) | the user asked for a hard stop; armed at 2× the alert budget so it cannot fire during normal judging traffic |
+| new project `sdoc-verifier-<hex>` | existing project **`averis-email-system`** (number `969206696114`), billing `015CE1-381F1A-582702`, region `asia-southeast1` | the project already exists with billing linked, and Neon is on `aws ap-southeast-1` |
 
 ---
 
@@ -3214,23 +3216,27 @@ test -f secrets/ground_truth.json && echo key-present
 
 Expected: a Docker version, the user's account, at least one open billing account, `key-present`.
 
-- [ ] **Step 2: OPERATOR — get `.env` from the team and pick the region**
+- [ ] **Step 2: OPERATOR — put the rotated `.env` at the repo root**
 
-Place the team's `.env` at the repo root (it is git-ignored). Then run:
+The `.env` must hold `NEON_DB_URI` and `OPENROUTER_API_KEY`. Both were exposed in chat on 2026-09-20 and **must be rotated first** (Neon: reset the `neondb_owner` password; OpenRouter: delete and recreate the key). The implementer never reads this file.
 
-```bash
-bash scripts/gcp/neon-region.sh .env
-```
+Region is already known and needs no script run: Neon is on `aws ap-southeast-1`, so `REGION=asia-southeast1`. (`neon-region.sh` still exists for other environments and is covered by the selftest.)
 
-Share only the printed `gcp:` line with the implementer.
+- [ ] **Step 3: Confirm the target before creating anything**
 
-- [ ] **Step 3: Choose names; confirm cost with the user before creating anything**
+These are already verified and need no new project:
 
 ```bash
-echo "sdoc-verifier-$(python -c 'import secrets; print(secrets.token_hex(3))')"
+gcloud projects describe averis-email-system --format="value(projectId,projectNumber)"   # averis-email-system  969206696114
+gcloud billing projects describe averis-email-system --format="value(billingAccountName,billingEnabled)"  # billingAccounts/015CE1-381F1A-582702  True
 ```
 
-Ask the user to confirm: the project ID, the region, the billing account, and the alert email (`ALERT_EMAIL`). Tell them this creates billable resources capped by scale-to-zero, instance limits, and a US$5 budget alert. **Proceed only on an explicit yes.**
+```bash
+export PROJECT_ID=averis-email-system REGION=asia-southeast1 \
+       BILLING_ACCOUNT=015CE1-381F1A-582702 ALERT_EMAIL=<confirm with the user>
+```
+
+Ask the user only for `ALERT_EMAIL`, and confirm that bootstrap will add Cloud Run, Artifact Registry, Secret Manager, Storage, Monitoring and budget resources to this **existing** project. Note the spend is capped by scale-to-zero, instance limits, a US$5 alert budget and (Task 18b) a $10 kill switch. **Proceed only on an explicit yes.**
 
 - [ ] **Step 4: Bootstrap**
 
@@ -4202,6 +4208,234 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
+### Task 18b: Billing kill switch (hard stop at $10)
+
+Requested by the user on top of the spec's alert-only budget. It is armed at **$10**, double the alert budget, because unlinking billing takes the whole demo down and needs a manual relink. Budget data lags real spend by hours, so this is a backstop, not a rate limiter.
+
+**Files:**
+- Create: `scripts/gcp/killswitch/main.py`, `scripts/gcp/killswitch/requirements.txt`, `scripts/gcp/killswitch.sh`, `api/tests/test_killswitch.py`
+
+**Interfaces:**
+- Consumes: `common.sh` names; the budget from Task 13.
+- Produces: Pub/Sub topic `budget-alerts`, budget `sdoc-verifier-killswitch` ($10 → Pub/Sub), service account `sdoc-killswitch` with `roles/billing.projectManager`, and Cloud Function (gen2) `sdoc-billing-killswitch` running `stop_billing`. The decision logic lives in `should_stop(payload: dict) -> bool` so it is testable without GCP.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `api/tests/test_killswitch.py`:
+
+```python
+"""The billing kill switch fires only when reported cost reaches the budget.
+
+The function itself runs on Cloud Functions; only its decision rule is
+imported here, so the test needs no GCP libraries.
+"""
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "gcp" / "killswitch" / "main.py"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("killswitch_main", SOURCE)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["killswitch_main"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ({"costAmount": 10.0, "budgetAmount": 10.0}, True),
+    ({"costAmount": 12.5, "budgetAmount": 10.0}, True),
+    ({"costAmount": 9.99, "budgetAmount": 10.0}, False),
+    ({"costAmount": 0, "budgetAmount": 10.0}, False),
+    ({}, False),
+    ({"costAmount": "not-a-number", "budgetAmount": 10.0}, False),
+    ({"costAmount": 10.0, "budgetAmount": 0}, False),
+])
+def test_only_a_real_overrun_stops_billing(payload, expected):
+    assert _load().should_stop(payload) is expected
+```
+
+Note: `main.py` must keep its GCP imports inside the functions that use them, so importing the module is side-effect free.
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `T` with `api/tests/test_killswitch.py`
+Expected: FAIL — `scripts/gcp/killswitch/main.py` does not exist.
+
+- [ ] **Step 3: Write the function**
+
+Create `scripts/gcp/killswitch/main.py`:
+
+```python
+"""Unlink the billing account when the kill-switch budget is reached.
+
+Triggered by Pub/Sub messages from a Cloud Billing budget. Budget updates
+arrive continuously, most of them well under budget, so the decision rule is
+kept separate and tested in api/tests/test_killswitch.py.
+
+WARNING: unlinking billing stops every service in the project at once.
+Recovery is manual — see docs/deploy.md.
+"""
+import base64
+import json
+import logging
+import os
+
+import functions_framework
+
+TARGET_PROJECT_ID = os.environ.get("TARGET_PROJECT_ID", "")
+log = logging.getLogger("killswitch")
+
+
+def should_stop(payload: dict) -> bool:
+    """True only when reported cost has reached a positive budget."""
+    try:
+        cost = float(payload.get("costAmount", 0))
+        budget = float(payload.get("budgetAmount", 0))
+    except (TypeError, ValueError):
+        return False
+    return budget > 0 and cost >= budget
+
+
+def _disable_billing(project_id: str) -> str:
+    from googleapiclient import discovery
+
+    billing = discovery.build("cloudbilling", "v1", cache_discovery=False)
+    name = f"projects/{project_id}"
+    try:
+        if not billing.projects().getBillingInfo(name=name).execute().get("billingEnabled"):
+            return "billing was already disabled"
+    except Exception:  # keep going: the unlink itself is what matters
+        log.warning("could not read billing info; attempting the unlink anyway", exc_info=True)
+    billing.projects().updateBillingInfo(name=name, body={"billingAccountName": ""}).execute()
+    return "billing disabled"
+
+
+@functions_framework.cloud_event
+def stop_billing(cloud_event) -> str:
+    payload = json.loads(base64.b64decode(cloud_event.data["message"]["data"]).decode("utf-8"))
+    if not should_stop(payload):
+        return f"under budget: {payload.get('costAmount')} of {payload.get('budgetAmount')}"
+    if not TARGET_PROJECT_ID:
+        raise RuntimeError("TARGET_PROJECT_ID is not set")
+    outcome = _disable_billing(TARGET_PROJECT_ID)
+    log.error("KILL SWITCH: %s for %s (cost %s of %s)", outcome, TARGET_PROJECT_ID,
+              payload.get("costAmount"), payload.get("budgetAmount"))
+    return outcome
+```
+
+Create `scripts/gcp/killswitch/requirements.txt`:
+
+```text
+functions-framework==3.*
+google-api-python-client==2.*
+```
+
+- [ ] **Step 4: Run the test**
+
+Run: `T` with `api/tests/test_killswitch.py`
+Expected: `7 passed`. If `functions_framework` is not installed locally, the import fails — in that case run `uv run --with functions-framework pytest api/tests/test_killswitch.py -q -p no:cacheprovider --basetemp=.pytest-tmp` and add that note to the step, since CI installs only the project's own dependencies.
+
+- [ ] **Step 5: Write the deploy script**
+
+Create `scripts/gcp/killswitch.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Hard stop: a $10 budget publishes to Pub/Sub and a Cloud Function unlinks
+# the billing account. Armed at 2x the $5 alert budget, because this takes the
+# whole demo down and recovery is manual (docs/deploy.md).
+#   PROJECT_ID=... REGION=... BILLING_ACCOUNT=... bash scripts/gcp/killswitch.sh
+set -euo pipefail
+cd "$(dirname "$0")"
+: "${BILLING_ACCOUNT:?set BILLING_ACCOUNT}"
+KILL_BUDGET_USD="${KILL_BUDGET_USD:-10}"
+source ./common.sh
+quiet() { "$@" >/dev/null 2>&1; }
+KILL_SA="sdoc-killswitch@$PROJECT_ID.iam.gserviceaccount.com"
+TOPIC=budget-alerts
+PROJECT_NUMBER="$(project_number)"
+
+echo "==> APIs"
+gcloud services enable pubsub.googleapis.com cloudfunctions.googleapis.com \
+  cloudbuild.googleapis.com eventarc.googleapis.com
+
+echo "==> topic $TOPIC"
+quiet gcloud pubsub topics describe "$TOPIC" || gcloud pubsub topics create "$TOPIC"
+
+echo "==> service account + billing permission"
+quiet gcloud iam service-accounts describe "$KILL_SA" ||
+  gcloud iam service-accounts create sdoc-killswitch --display-name="sdoc-killswitch"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$KILL_SA" \
+  --role=roles/billing.projectManager --condition=None >/dev/null
+# Cloud Build needs to build the function image in a fresh project
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role=roles/cloudbuild.builds.builder --condition=None >/dev/null
+
+echo "==> function sdoc-billing-killswitch"
+gcloud functions deploy sdoc-billing-killswitch \
+  --gen2 --region="$REGION" --runtime=python312 --source=./killswitch \
+  --entry-point=stop_billing --trigger-topic="$TOPIC" \
+  --service-account="$KILL_SA" --set-env-vars="TARGET_PROJECT_ID=$PROJECT_ID" \
+  --max-instances=1 --memory=256Mi --quiet
+
+echo "==> budget sdoc-verifier-killswitch (US\$$KILL_BUDGET_USD -> $TOPIC)"
+if ! gcloud billing budgets list --billing-account="$BILLING_ACCOUNT" --format="value(displayName)" | grep -qx "sdoc-verifier-killswitch"; then
+  gcloud billing budgets create --billing-account="$BILLING_ACCOUNT" \
+    --display-name="sdoc-verifier-killswitch" --budget-amount="${KILL_BUDGET_USD}USD" \
+    --filter-projects="projects/$PROJECT_NUMBER" --threshold-rule=percent=1.0 \
+    --all-updates-rule-pubsub-topic="projects/$PROJECT_ID/topics/$TOPIC" >/dev/null
+fi
+
+cat <<EOF
+
+Kill switch armed: billing is unlinked automatically if reported spend on
+$PROJECT_ID reaches US\$$KILL_BUDGET_USD. Budget data lags by hours.
+Recovery: relink billing (console -> Billing -> link account), then
+  bash scripts/gcp/deploy.sh
+Disarm:  gcloud functions delete sdoc-billing-killswitch --region=$REGION
+EOF
+```
+
+- [ ] **Step 6: Verify syntax, then arm it**
+
+Run: `bash scripts/gcp/selftest.sh`, then `bash scripts/gcp/killswitch.sh` with `PROJECT_ID`, `REGION` and `BILLING_ACCOUNT` exported.
+Expected: `selftest OK`; the function deploys (the first build takes 1–3 min) and the script prints "Kill switch armed".
+If the build fails with a Cloud Build or Artifact Registry permission error, wait a minute for the IAM grant to propagate and rerun; the script is idempotent.
+
+- [ ] **Step 7: Prove it without spending anything**
+
+Publish a fake under-budget message and confirm the function declines to act:
+
+```bash
+gcloud pubsub topics publish budget-alerts --message='{"costAmount":1.0,"budgetAmount":10.0}'
+sleep 30
+gcloud functions logs read sdoc-billing-killswitch --region="$REGION" --limit=10 | grep -i "under budget"
+gcloud billing projects describe "$PROJECT_ID" --format="value(billingEnabled)"
+```
+
+Expected: a log line `under budget: 1.0 of 10.0`, and `billingEnabled` still `True`.
+**Do not publish a message at or over the budget** — that really would disable billing.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add scripts/gcp/killswitch scripts/gcp/killswitch.sh api/tests/test_killswitch.py
+git commit -m "Add a $10 billing kill switch behind the alert budget
+
+Unlinks billing if reported spend reaches twice the alert budget. Armed
+high on purpose: it stops the whole demo and recovery is manual.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 19: Deploy on merge
 
 **Files:**
@@ -4352,6 +4586,8 @@ Then a repo admin sets the five GitHub variables that `bootstrap.sh` printed
 | Task | Command |
 |---|---|
 | Deploy by hand | `bash scripts/gcp/deploy.sh && bash scripts/gcp/smoke.sh` |
+| Disarm the kill switch | `gcloud functions delete sdoc-billing-killswitch --region "$REGION"` |
+| Recover after it fired | relink billing in the console, then `bash scripts/gcp/deploy.sh` |
 | Reset the demo | `bash scripts/gcp/demo-reset.sh` |
 | Rotate the passcode | `bash scripts/gcp/set-secrets.sh .env` then `deploy.sh` |
 | Recent errors | `gcloud logging read 'resource.type="cloud_run_revision" AND severity>=WARNING' --limit 50` |
@@ -4379,6 +4615,12 @@ Do the same for `sdoc-api`. For the job:
 
 Expected spend through judging: **under US$1**. The US$5 budget only sends
 alerts; the instance caps are what actually bound spend.
+
+A second budget at US$10 is a hard stop: it publishes to the `budget-alerts`
+topic, and the `sdoc-billing-killswitch` function unlinks the billing account,
+which stops every service at once. It is armed at twice the alert budget on
+purpose, and budget data lags real spend by hours, so treat it as a backstop
+rather than a rate limiter. Recovery is manual: relink billing, then redeploy.
 
 ## Teardown
 
@@ -4479,7 +4721,7 @@ On `WEB_URL`, in a private window, confirm each item and note any failure:
 7. **Run inbox checks** on the Runs page completes, and the score appears.
 8. Intake of a `.txt` file renamed to `.pdf` is rejected with a clear message. **Reprocess** on `email_004` adds a new result with the same verdict.
 9. `bash scripts/gcp/demo-reset.sh` removes the uploads and restores the clean state.
-10. `gcloud billing budgets list --billing-account=$BILLING_ACCOUNT` shows `sdoc-verifier` at 5 USD, and `gcloud run services list --region $REGION` shows the three services.
+10. `gcloud billing budgets list --billing-account=$BILLING_ACCOUNT` shows `sdoc-verifier` at 5 USD and `sdoc-verifier-killswitch` at 10 USD; `gcloud run services list --region $REGION` shows the three services; `gcloud billing projects describe $PROJECT_ID` still reports `billingEnabled: True`.
 
 - [ ] **Step 4: Commit**
 

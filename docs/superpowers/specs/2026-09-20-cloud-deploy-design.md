@@ -138,10 +138,18 @@ hard caps.
 | Builds | GitHub Actions runners (free for public repos), not Cloud Build | $0 |
 | Networking | default `*.run.app` URLs; no load balancer, no VPC connector | avoids ~$18/month fixed costs |
 | Budget | **$5**, alerts at 50 %, 90 %, 100 % actual and 100 % forecasted, scoped to the project | early warning |
+| Kill switch (added 2026-09-20 at the user's request) | a **second** budget at **$10** publishes to Pub/Sub; a Cloud Function unlinks the billing account when reported cost reaches it | a real hard stop, deliberately set at 2× the alert budget so it can only fire when something is badly wrong |
 
 **Expected spend through judging: under US$1.** Cold starts (3–6 s for web + api
 together) are the accepted trade-off; the uptime checks keep instances warm most of
 the time.
+
+**On the kill switch.** Disabling billing stops every service at once and needs a
+manual relink to recover, so firing it during judging would be worse than the
+overspend it prevents. It is therefore armed at $10, not $5, and budget data lags
+real spend by up to several hours — it is a backstop, not a rate limiter. The
+structural caps (scale-to-zero, max instances 2/2/1, one job task) remain the
+primary protection.
 
 ## 5. Components
 
