@@ -44,11 +44,15 @@ untrustworthy documents to human review.
 
 | Service | Image base | Port | Purpose |
 |---|---|---|---|
-| `web` | node:22-alpine + corepack pnpm | 3000 | Dashboard, inbox, diff view, review queue, runs |
-| `api` | astral-sh/uv python3.13 | 8000 | Pipeline, REST API, Neon access |
-| `scorer` | python:3.12-slim (provided) | 8080→8000 | Evaluation against private ground truth |
+| `web` | node:22-alpine + corepack pnpm | 3000 | Dashboard, inbox, diff view, review queue, intake, runs. Locally: build-time rewrite. In the cloud: Vercel, with `web/app/api/[...path]/route.ts` proxying `/api/*` to the API at request time so the browser never calls it cross-origin |
+| `api` | astral-sh/uv python3.13 | 8000 | Pipeline, REST API, Neon access. Same image also runs the worker job in the cloud (`python -m pipeline.worker`) |
+| `scorer` | python:3.12-slim (provided) | 8080→8000 | Evaluation against private ground truth. Locally reachable at `http://scorer:8000`; in the cloud it's an IAM-private Cloud Run service only `sdoc-api`'s service account may invoke |
 | Neon | managed | — | `emails`, `runs`, `pipeline_results`, `reviews` |
 | OpenRouter | managed | — | text model + vision model |
+
+In the cloud, `web` deploys to Vercel and `api`/`scorer` deploy to Cloud Run,
+plus a Cloud Run Job (`sdoc-worker`, same `api` image) for full pipeline runs
+so they don't run inside a request. See section 10.
 
 The browser only ever talks to its own origin: Next rewrites `/api/*` to
 `API_URL`, so the UI works unchanged on localhost, in compose, or behind a
@@ -289,9 +293,13 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 │                               health, review; no DB, no network
 ├── web/
 │   ├── Dockerfile              pnpm install --frozen-lockfile + build
-│   ├── next.config.ts          /api/* → API_URL rewrite
-│   ├── app/                    / inbox emails/[id] review runs
+│   ├── next.config.ts          standalone output; API proxy: app/api/[...path]
+│   ├── app/                    / inbox emails/[id] review runs auth/reviewer
 │   └── lib/                    api.ts typed fetch + labels.ts UI copy
+├── scripts/gcp/                bootstrap · set-secrets · deploy · smoke ·
+│                                demo-reset · monitoring · killswitch (RM40 guard)
+├── docs/deploy.md              Cloud Run + Vercel runbook
+├── secrets/                    git-ignored (local answer key; never committed)
 ├── .github/workflows/ci.yml    pytest + ruff + tsc + next build
 └── plans/                      requirements + technical plan docs
 ```
@@ -328,7 +336,58 @@ if something starts needing them.
 
 ---
 
-## 10. Gmail integration (optional inbox source)
+## 10. Cloud deployment (Google Cloud Run + Vercel)
+
+**Status: not yet deployed.** This section describes the target topology and
+how to operate it once it is. No live URLs exist yet — do not treat any
+URL-shaped text below as real; they're filled in after the first deploy.
+
+| | |
+|---|---|
+| Web | Vercel, `<vercel-url>` |
+| API | Cloud Run, `<api-url>` (`<api-url>/docs` for the OpenAPI UI) |
+
+```
+ browser ──► web (Vercel, public) ──/api/* server-side proxy──► sdoc-api (Cloud Run, public; writes need the reviewer passcode)
+                                                                  │  ├─ Neon Postgres
+                                                                  │  ├─ OpenRouter (optional)
+                                                                  │  ├─ gs://…-sdoc-uploads (mounted /data/uploads)
+                                                                  │  ├─ sdoc-scorer (Cloud Run, IAM-private)
+                                                                  │  └─ sdoc-worker (Cloud Run Job, one execution per full run)
+```
+
+Reads (dashboard, inbox, review queue, runs) are open to anyone with the
+link, on purpose, so judges can browse with no login. Writes — starting a
+run, confirming a review, live intake, reprocessing — require unlocking
+reviewer mode with a passcode (`X-Demo-Passcode` header, checked in
+`api/app/api/deps.py::require_reviewer`); the web UI does this through
+`web/app/auth/reviewer/route.ts`, which sets a 12-hour HttpOnly cookie after
+the API confirms the passcode.
+
+Spend is bounded two ways: `sdoc-api` runs with `--max-instances 1` (so its
+in-process run guards — at most one active run, at most 20 started per
+rolling day, see `api/app/core/config.py`) behave globally, and a Cloud
+Function disconnects this GCP project's billing if reported monthly cost
+passes a selected MYR cutoff (currently **RM40**; see
+`docs/cost-guard-status.md`). That guard cannot bound Vercel, Neon or
+OpenRouter spend, which are separate, independent billing relationships.
+
+Full setup, day-to-day operations (unlocking reviewer mode, what a 409/429
+run refusal means, resetting the demo, retrying a failed email, finding
+logs for one run, recovering from the billing guard), rollback and teardown
+are in [`docs/deploy.md`](docs/deploy.md).
+
+---
+
+## 11. Gmail integration (optional inbox source, local only)
+
+> **Not part of the cloud deploy.** `scripts/gcp/deploy.sh` deliberately
+> does not set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
+> `GOOGLE_REDIRECT_URI` on the deployed API. These settings are optional in
+> `api/app/core/config.py` and the feature degrades cleanly when unset, so
+> this is safe — it just means Gmail import only works when you run the
+> stack yourself, as described below. Wiring it into the cloud deploy would
+> be a separate, deliberate change.
 
 Pull live shipping mail straight from Gmail instead of the static bundle.
 Gmail is just another ingest source: messages land in the same `emails`
