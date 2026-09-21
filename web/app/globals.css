@@ -62,7 +62,7 @@ button:hover,
 
 button:disabled {
     opacity: .55;
-    cursor: wait;
+    cursor: not-allowed;
 }
 
 button.ghost,
