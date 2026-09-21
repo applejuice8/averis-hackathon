@@ -1,0 +1,89 @@
+name: Deploy
+
+# Deploys the Cloud Run side (sdoc-scorer, the sdoc-worker job, sdoc-api)
+# only after every CI gate on `main` has passed. This is a separate
+# workflow (not `needs:` inside ci.yml) so ci.yml — which also runs on
+# every push/PR to every branch — stays untouched; gating instead happens
+# via `workflow_run`, which only fires once the named workflow run has
+# fully completed, and only for the branch this file's own trigger names.
+#
+# VERCEL IS OUT OF SCOPE. This workflow covers Cloud Run only. The Vercel
+# GitHub app is not authorised on applejuice8/secret-hack, so the web app
+# is still deployed manually (`npx vercel --prod` from the repo root) —
+# see docs/deploy.md, "Vercel Git integration — currently manual". No
+# VERCEL_TOKEN and no Vercel deploy step are added here.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+# One deploy in flight per branch at a time. Do NOT cancel-in-progress: a
+# half-finished `deploy.sh` (scorer up, api still on the old image) is
+# worse than a second push queuing behind it.
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # Workload Identity Federation — no JSON key ever touches this repo
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Cloud Run (scorer, worker, api)
+    runs-on: ubuntu-latest
+    # Only deploy the exact commit that just passed CI, only on main, and
+    # only when every job in that CI run (api, web, images) succeeded.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success'
+    env:
+      PROJECT_ID: averis-email-system
+      REGION: asia-southeast1
+      WEB_URL: https://secret-hack.vercel.app
+    steps:
+      - name: Checkout the commit CI just verified
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: averis-email-system
+          workload_identity_provider: projects/969206696114/locations/global/workloadIdentityPools/github/providers/github-actions
+          service_account: sdoc-deployer@averis-email-system.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Billing-enabled preflight
+        # require_billing (scripts/gcp/common.sh) fails fast if billing on
+        # averis-email-system is off or linked to the wrong account. It
+        # only ever reads billing state — it has no relink permission and
+        # never calls `gcloud billing projects link`.
+        run: |
+          source scripts/gcp/common.sh
+          require_billing
+
+      - name: Deploy (scorer -> worker job -> api)
+        run: bash scripts/gcp/deploy.sh
+
+      - name: Record deployed revision and URL
+        run: |
+          source scripts/gcp/common.sh
+          revision="$(gcloud_p run services describe sdoc-api --region "$REGION" --format='value(status.latestReadyRevisionName)')"
+          url="$(gcloud_p run services describe sdoc-api --region "$REGION" --format='value(status.url)')"
+          {
+            echo "### Cloud Run deploy"
+            echo ""
+            echo "- Commit: \`${{ github.event.workflow_run.head_sha }}\`"
+            echo "- Service: sdoc-api"
+            echo "- Revision: \`$revision\`"
+            echo "- URL: $url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test the live deployment
+        run: bash scripts/gcp/smoke.sh

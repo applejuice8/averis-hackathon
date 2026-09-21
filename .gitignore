@@ -20,3 +20,19 @@ submission*.json
 
 # LLM response cache
 .cache/
+
+# Subagent-driven development scratch (ledger, briefs, review packages)
+.superpowers/
+
+# Private files that must never be committed (see secrets/README.md)
+secrets/*
+!secrets/README.md
+
+# pytest scratch (tests run with --basetemp=.pytest-tmp)
+.pytest-tmp/
+
+# local pnpm store (created when pnpm runs with a repo-local store)
+.pnpm-store/
+.vercel
+.env*
+!.env.example

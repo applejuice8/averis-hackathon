@@ -77,3 +77,8 @@ async def get(s: AsyncSession, result_id: str | uuid.UUID) -> PipelineResult | N
     if isinstance(result_id, str):
         result_id = uuid.UUID(result_id)
     return await s.get(PipelineResult, result_id)
+
+
+async def email_ids_for_run(s: AsyncSession, run_id: uuid.UUID) -> set[str]:
+    rows = await s.execute(select(PipelineResult.email_id).where(PipelineResult.run_id == run_id))
+    return set(rows.scalars().all())

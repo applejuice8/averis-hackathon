@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { request } from "@/lib/api";
+import { LockedHint, useReviewer } from "../../components/Reviewer";
 
 // Reads a sample-format email file — {"from"|"sender", "subject", "body"} as
 // JSON, or a text file starting with From:/Subject: header lines — and fills
@@ -19,6 +20,7 @@ function parseEmailFile(text: string): { sender: string; subject: string; body: 
 
 export default function EmailForm() {
   const router = useRouter();
+  const { unlocked } = useReviewer();
   const importRef = useRef<HTMLInputElement>(null);
   const docRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -78,13 +80,15 @@ export default function EmailForm() {
         <input ref={docRef} type="file" multiple accept=".txt,.pdf,.docx,.xlsx" style={{display:"none"}} onChange={e => { addDocs(e.target.files); e.target.value = ""; }}/>
         {docs.length ? <div className="file-chips">{docs.map((f, i) => <span className="file-chip" key={`${f.name}-${i}`}><span className="mono">{f.name}</span><small className="muted">{Math.max(1, Math.round(f.size / 1024))} KB</small><button type="button" aria-label={`Remove ${f.name}`} onClick={() => setDocs(docs.filter((_, j) => j !== i))}>×</button></span>)}</div>
           : <p className="muted">No documents yet — attach the files that came with the email (SI, draft BL, invoice…). They are paired by content, so names do not matter.</p>}
+        <p className="muted" style={{fontSize:11}}>Up to 4 files · .txt, .pdf, .docx or .xlsx · 3 MiB each and 3 MiB total.</p>
       </div>
       <div className="actions">
-        <button type="button" disabled={busy || !ready} onClick={submit}>{busy ? "Adding…" : "Add to inbox"}</button>
+        <button type="button" disabled={busy || !ready || !unlocked} onClick={submit}>{busy ? "Adding…" : "Add to inbox"}</button>
         <span className="muted">or</span>
         <button type="button" className="ghost" onClick={() => importRef.current?.click()}>Import a .txt / .json email file</button>
         <input ref={importRef} type="file" accept=".txt,.json" style={{display:"none"}} onChange={e => { importFile(e.target.files?.[0]); e.target.value = ""; }}/>
       </div>
+      <LockedHint action="add this email to the inbox"/>
       <div aria-live="polite" className="feedback">{note && <span className="success">{note}</span>}</div>
       {error && <p className="error" role="alert">{error}</p>}
     </div>

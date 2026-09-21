@@ -1,9 +1,9 @@
 """All Email + joined PipelineResult queries."""
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Email, PipelineResult
+from ..db.models import Email, PipelineResult, Review
 
 
 def latest_result_ids():
@@ -13,11 +13,30 @@ def latest_result_ids():
     )
 
 
-async def list_all(s: AsyncSession, email_ids: list[str] | None = None):
+def to_record(email: Email) -> dict:
+    """ORM row -> the dict the pipeline consumes (same keys as inbox JSON)."""
+    return {
+        "email_id": email.email_id,
+        "from": email.sender,
+        "subject": email.subject,
+        "body": email.body,
+        "attachments": email.attachments or [],
+    }
+
+
+def list_all_statement(email_ids: list[str] | None, source: str | None):
     stmt = select(Email).order_by(Email.email_id)
+    if source is not None:
+        stmt = stmt.where(Email.source == source)
     if email_ids:
         stmt = stmt.where(Email.email_id.in_(email_ids))
-    return (await s.execute(stmt)).scalars().all()
+    return stmt
+
+
+async def list_all(s: AsyncSession, email_ids: list[str] | None = None, source: str | None = "dataset"):
+    """Batch runs see dataset emails only, so submissions stay exactly the
+    scored inbox; uploads are processed one at a time on arrival."""
+    return (await s.execute(list_all_statement(email_ids, source))).scalars().all()
 
 
 async def list_with_latest_results(
@@ -81,3 +100,37 @@ async def upsert_many(s: AsyncSession, records: list[dict]) -> int:
         await s.execute(stmt)
     await s.commit()
     return len(records)
+
+
+async def create_upload(s: AsyncSession, record: dict) -> Email:
+    row = Email(
+        email_id=record["email_id"],
+        sender=record["from"],
+        subject=record["subject"],
+        body=record["body"],
+        attachments=record["attachments"],
+        source="upload",
+    )
+    s.add(row)
+    await s.flush()
+    return row
+
+
+def upload_delete_statements():
+    """Reviews -> results -> emails (FK order), scoped to uploaded emails."""
+    uploads = select(Email.email_id).where(Email.source == "upload")
+    upload_results = select(PipelineResult.id).where(PipelineResult.email_id.in_(uploads))
+    return [
+        delete(Review).where(Review.result_id.in_(upload_results)),
+        delete(PipelineResult).where(PipelineResult.email_id.in_(uploads)),
+        delete(Email).where(Email.source == "upload"),
+    ]
+
+
+async def delete_uploads(s: AsyncSession) -> list[str]:
+    """Remove every uploaded email with its results and reviews. Returns the
+    ids so the caller can delete their files. The caller commits."""
+    ids = list((await s.execute(select(Email.email_id).where(Email.source == "upload"))).scalars().all())
+    for stmt in upload_delete_statements():
+        await s.execute(stmt)
+    return ids

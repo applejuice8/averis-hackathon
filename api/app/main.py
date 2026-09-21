@@ -7,7 +7,10 @@ from sqlalchemy import func, select
 
 from .api.router import api_router
 from .core.config import settings
+from .core.logging import configure_logging, trace_middleware
 from .db.session import init_db
+
+configure_logging(settings.log_format, settings.gcp_project_id)
 
 
 @asynccontextmanager
@@ -18,10 +21,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SDOC Verifier API", version="0.1.0", lifespan=lifespan)
 app.include_router(api_router)
+app.middleware("http")(trace_middleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -44,6 +48,12 @@ async def _database_health() -> dict:
         return {"ok": False, "detail": type(e).__name__}
 
 
+@app.get("/livez")
+async def livez():
+    """Liveness only: the process is up. Never touches the database."""
+    return {"ok": True}
+
+
 @app.get("/health")
 async def health(response: Response):
     """What the service can actually reach right now. Deliberately does not
@@ -52,6 +62,8 @@ async def health(response: Response):
     data_dir = settings.resolved_data_dir
     payload = {
         "status": "ok" if database["ok"] else "degraded",
+        "writes_protected": bool(settings.demo_passcode),
+        "run_executor": settings.run_executor,
         "database": database,
         "llm": {
             "key_configured": bool(settings.openrouter_api_key),

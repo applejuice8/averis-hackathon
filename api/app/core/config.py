@@ -54,6 +54,28 @@ class Settings(BaseSettings):
     enable_llm_fill: bool = False
     enable_vision_ocr: bool = False
 
+    # demo access: an empty passcode leaves writes open (local dev only)
+    demo_passcode: str = ""
+    cors_origins: str = "http://localhost:3000"
+
+    # where full pipeline runs execute: "inline" (api process) or
+    # "cloudrun-job" (a Cloud Run Job execution per run)
+    run_executor: str = "inline"
+    gcp_project_id: str = ""
+    gcp_region: str = ""
+    worker_job: str = "sdoc-worker"
+
+    # spend guards: a published passcode must not be able to pile up billable runs
+    max_active_runs: int = 1
+    max_runs_per_day: int = 20
+
+    # "gcp-id-token" when the scorer is an IAM-private Cloud Run service
+    scorer_auth: str = "none"
+
+    # live-intake files land in DATA_DIR/UPLOADS_SUBDIR/<email_id>/
+    uploads_subdir: str = "uploads"
+    log_format: str = "text"  # "json" => Cloud Logging structured lines
+
     # A missing artifact makes the pipeline spam gate a no-op and the direct
     # detection endpoint unavailable.
     spam_model_path: str = "api/ml/models/spam.joblib"
@@ -89,6 +111,14 @@ class Settings(BaseSettings):
         return str(REPO_ROOT / self.data_dir)
 
     @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def uploads_root(self) -> Path:
+        return Path(self.resolved_data_dir) / self.uploads_subdir
+
+    @property
     def resolved_spam_model_path(self) -> str:
         """Relative SPAM_MODEL_PATH anchors at the repo root, not the cwd."""
         if os.path.isabs(self.spam_model_path):
@@ -110,12 +140,15 @@ class Settings(BaseSettings):
         return str(REPO_ROOT / self.upload_data_dir)
 
     def data_dir_for(self, email_id: str) -> str:
-        """Bundle emails read from the read-only mount; ingested or uploaded
-        emails (gmail_, manual_) keep their attachments in writable dirs."""
+        """Bundle emails read from the read-only mount; Gmail-ingested emails
+        keep their attachments in a separate writable dir (its own volume).
+        Manually-added (manual_*) and live-intake (upload_*) emails both write
+        under uploads_root (DATA_DIR/uploads), the one writable path actually
+        mounted in both docker compose (the `uploads` volume) and Cloud Run
+        (the GCS bucket mount) — so they resolve through resolved_data_dir,
+        same as bundle emails."""
         if email_id.startswith("gmail_"):
             return self.resolved_gmail_data_dir
-        if email_id.startswith("manual_"):
-            return self.resolved_upload_data_dir
         return self.resolved_data_dir
 
 

@@ -16,8 +16,28 @@ DEFAULT_OUTPUT = Path(__file__).parent / "models/spam.joblib"
 DEFAULT_THRESHOLD = 0.255
 
 
+def ground_truth_path(data_dir: Path) -> Path | None:
+    """The answer key, wherever it lives.
+
+    It used to sit beside the eval data, but it is deliberately kept out of the
+    public repo (see secrets/README.md), so fall back to the ignored secrets/
+    copy. Returns None when neither exists, which lets callers skip rather than
+    crash on a fresh clone or in CI.
+    """
+    for candidate in (data_dir / "ground_truth.json", REPO_ROOT / "secrets/ground_truth.json"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def load_training_data(data_dir: Path) -> tuple[list[str], list[int]]:
-    labels = json.loads((data_dir / "ground_truth.json").read_text())
+    key = ground_truth_path(data_dir)
+    if key is None:
+        raise FileNotFoundError(
+            "no ground_truth.json in "
+            f"{data_dir} or {REPO_ROOT / 'secrets'} — see secrets/README.md"
+        )
+    labels = json.loads(key.read_text())
     records: dict[str, int] = {}
     for path in sorted((data_dir / "inbox").glob("*.json")):
         email = json.loads(path.read_text())

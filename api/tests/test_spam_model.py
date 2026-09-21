@@ -8,10 +8,20 @@ API_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API_DIR))
 
 from ml.model import SpamDetector, build_pipeline, format_email, save_detector  # noqa: E402
-from ml.train import DEFAULT_DATA_DIR, dataset_fingerprint, load_training_data  # noqa: E402
+from ml.train import (  # noqa: E402
+    DEFAULT_DATA_DIR,
+    dataset_fingerprint,
+    ground_truth_path,
+    load_training_data,
+)
 
 
 def test_training_dataset_is_deduplicated_and_reproducible():
+    # The answer key is kept out of the public repo (secrets/README.md), so on a
+    # fresh clone or in CI there is nothing to train against.
+    if ground_truth_path(DEFAULT_DATA_DIR) is None:
+        pytest.skip("ground_truth.json not available; see secrets/README.md")
+
     texts, labels = load_training_data(DEFAULT_DATA_DIR)
 
     assert len(texts) == 519

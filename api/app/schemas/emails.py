@@ -76,6 +76,12 @@ class EmailDetail(BaseModel):
     result: ResultDetail | None
 
 
+class ProcessOutcome(BaseModel):
+    email_id: str
+    status: str
+    category: str
+
+
 class EmailCreate(BaseModel):
     """Manual inbox entry — the fields of the bundle's email_*.json records.
     Documents arrive as uploaded files, not path strings."""

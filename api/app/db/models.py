@@ -16,6 +16,7 @@ class Email(Base):
     body = Column(Text)
     attachments = Column(JSONB)  # ['attachments/email_004_SI.txt', ...]
     ingested_at = Column(DateTime(timezone=True), server_default=func.now())
+    source = Column(Text, nullable=False, server_default="dataset")  # 'dataset' | 'upload'
 
 
 class Run(Base):
@@ -27,6 +28,7 @@ class Run(Base):
     finished_at = Column(DateTime(timezone=True))
     stats = Column(JSONB)
     score = Column(JSONB)
+    error = Column(Text)  # set when a run dies before finishing
 
 
 class PipelineResult(Base):

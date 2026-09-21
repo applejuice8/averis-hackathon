@@ -1,8 +1,19 @@
-.venv
-__pycache__
-web/node_modules
-web/.next
-docs-provided
-data
-.env
+# api image context (repo root). The web image uses web/ as its own context.
 .git
+.github
+.venv
+.env
+.cache
+.pytest-tmp
+**/__pycache__
+web
+data
+secrets
+docs
+plans
+scripts
+# only the participant bundle is baked into the image (at /data)
+docs-provided/*
+!docs-provided/problem-statement
+docs-provided/problem-statement/*
+!docs-provided/problem-statement/sdoc-hackathon-bundle

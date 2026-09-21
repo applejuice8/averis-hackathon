@@ -216,3 +216,14 @@ def llm_assist(email: dict, data_dir: str) -> dict:
         else:
             out["ocr"][tag] = ocr_extract_fields(str(Path(data_dir) / rel))
     return out
+
+
+def failed_result(email_id: str, error: BaseException) -> dict:
+    """A processing crash, kept as a visible FAILED result instead of lost."""
+    return {
+        "email_id": email_id, "category": "GENERAL", "decided_by": "rule",
+        "status": "FAILED", "review_reason": None, "has_defect": False,
+        "defect_fields": [], "si_fields": None, "bl_fields": None,
+        "doc_types": None, "evidence": None,
+        "error": f"{type(error).__name__}: {error}",
+    }

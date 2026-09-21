@@ -2,8 +2,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { request, Run } from "@/lib/api";
+import { LockedHint, useReviewer } from "../components/Reviewer";
 export default function RunControls({ running }: { running: boolean }) {
   const router = useRouter();
+  const { unlocked } = useReviewer();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [started, setStarted] = useState<string | null>(null);
@@ -28,5 +30,5 @@ export default function RunControls({ running }: { running: boolean }) {
     } catch (err) { setError(err instanceof Error ? err.message : "Could not start the run."); }
     finally { setBusy(false); }
   }
-  return <div><button onClick={start} disabled={busy || running || !!started}>{busy ? "Starting…" : running || started ? "Processing inbox…" : "Run inbox checks"}</button>{error && <p className="error" role="alert">{error}</p>}<p className="muted" style={{fontSize:11}}>{running || started ? "Results refresh every few seconds." : "Uses the AI switches configured on the server."}</p></div>;
+  return <div><button onClick={start} disabled={busy || running || !!started || !unlocked}>{busy ? "Starting…" : running || started ? "Processing inbox…" : "Run inbox checks"}</button><LockedHint action="start a run"/>{error && <p className="error" role="alert">{error}</p>}<p className="muted" style={{fontSize:11}}>{running || started ? "Results refresh every few seconds." : "Uses the AI switches configured on the server."}</p></div>;
 }

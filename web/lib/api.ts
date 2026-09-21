@@ -1,6 +1,5 @@
-const API = process.env.API_URL || "http://localhost:8000";
 // Same-origin browser requests are forwarded to the API by Next.js.
-export const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL || "";
+export const PUBLIC_API = "";
 
 export type EmailListItem = {
   email_id: string;
@@ -44,6 +43,7 @@ export type Run = {
   finished_at: string | null;
   stats: Record<string, number> | null;
   score: Record<string, unknown> | null;
+  error: string | null;
 };
 
 export type ReviewItem = {
@@ -82,7 +82,9 @@ export type GmailPreviewItem = {
 };
 
 async function get<T>(path: string): Promise<T> {
-  const r = await fetch(`${API}${path}`, { cache: "no-store" });
+  const base = process.env.API_URL || (process.env.VERCEL ? "" : "http://localhost:8000");
+  if (!base) throw new Error("API_URL must be configured for this deployment.");
+  const r = await fetch(`${base.replace(/\/$/, "")}${path}`, { cache: "no-store", signal: AbortSignal.timeout(30_000) });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return r.json();
 }
@@ -114,5 +116,5 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => null);
     throw new Error(typeof body?.detail === "string" ? body.detail : `Request failed (${response.status}). Please try again.`);
   }
-  return response.json();
+  return response.status === 204 ? undefined as T : response.json();
 }

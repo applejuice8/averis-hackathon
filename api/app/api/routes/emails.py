@@ -1,10 +1,13 @@
 import uuid
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
+from ...core.config import settings
 from ...repositories import emails as emails_repo
 from ...repositories import results as results_repo
 from ...schemas.emails import (
@@ -12,9 +15,12 @@ from ...schemas.emails import (
     EmailCreated,
     EmailDetail,
     EmailListItem,
+    ProcessOutcome,
     ResultDetail,
 )
-from ..deps import get_db
+from ...services import intake
+from ...services.processing import AlreadyProcessing, process_one
+from ..deps import get_db, require_reviewer
 
 router = APIRouter()
 
@@ -30,7 +36,12 @@ async def list_emails(
     return [EmailListItem.from_row(e, r) for e, r in rows]
 
 
-@router.post("/emails", response_model=EmailCreated, status_code=201)
+@router.post(
+    "/emails",
+    response_model=EmailCreated,
+    status_code=201,
+    dependencies=[Depends(require_reviewer)],
+)
 async def create_email(
     sender: Annotated[str, Form()] = "",
     subject: Annotated[str, Form()] = "",
@@ -40,19 +51,26 @@ async def create_email(
 ):
     """Manual intake — a hand-entered email plus any documents the user
     attaches directly. Ids are always assigned (`manual_*`) so an upload can
-    never overwrite a bundle record; files persist in the writable upload dir
-    and the email is picked up by the next pipeline run."""
+    never overwrite a bundle record. Attachments share Task 16's live-intake
+    hardening (file count, size and content-sniffing limits — see
+    services/intake.py) and its storage location (DATA_DIR/uploads, the path
+    mounted in both docker compose and Cloud Run), so the email is picked up
+    by the next pipeline run from a location that actually persists."""
     try:
         EmailCreate(sender=sender, subject=subject, body=body)
     except ValidationError as e:
         raise HTTPException(422, "sender, subject or body must be non-empty") from e
 
-    from ...core.config import settings
-    from ...services.attachments import save_attachments
+    uploads = [(f.filename or "file", await f.read(intake.MAX_FILE_BYTES + 1)) for f in files or [] if f.filename]
+    try:
+        clean = intake.validate_files(uploads)
+    except intake.IntakeError as e:
+        raise HTTPException(422, str(e)) from e
 
     email_id = f"manual_{uuid.uuid4().hex[:10]}"
-    uploads = [(f.filename or "file", await f.read()) for f in files or [] if f.filename]
-    attachments = save_attachments(settings.resolved_upload_data_dir, email_id, uploads)
+    attachments = await run_in_threadpool(
+        intake.save_files, Path(settings.resolved_data_dir), settings.uploads_subdir, email_id, clean
+    )
     await emails_repo.upsert_many(s, [{
         "email_id": email_id,
         "from": sender.strip(),
@@ -83,7 +101,6 @@ async def get_email(email_id: str, s: AsyncSession = Depends(get_db)):
 async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depends(get_db)):
     from starlette.concurrency import run_in_threadpool
 
-    from ...core.config import settings
     from ...services.attachments import preview_attachment
 
     email = await emails_repo.get_by_id(s, email_id)
@@ -92,3 +109,17 @@ async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depend
     return await run_in_threadpool(
         preview_attachment, settings.data_dir_for(email_id), email.attachments or [], index
     )
+
+
+@router.post("/emails/{email_id}/reprocess", response_model=ProcessOutcome,
+             dependencies=[Depends(require_reviewer)])
+async def reprocess_email(email_id: str, s: AsyncSession = Depends(get_db)):
+    """Retry one email; the new result becomes the latest everywhere."""
+    email = await emails_repo.get_by_id(s, email_id)
+    if email is None:
+        raise HTTPException(404, f"no such email: {email_id}")
+    try:
+        result = await process_one(s, emails_repo.to_record(email), settings.resolved_data_dir)
+    except AlreadyProcessing as e:
+        raise HTTPException(409, "This email is already being processed. Wait for it to finish.") from e
+    return ProcessOutcome(email_id=email_id, status=result["status"], category=result["category"])
