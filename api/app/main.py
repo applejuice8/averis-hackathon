@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="SDOC Verifier API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="DockerOps API", version="0.1.0", lifespan=lifespan)
 app.include_router(api_router)
 app.middleware("http")(trace_middleware)
 

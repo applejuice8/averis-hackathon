@@ -182,7 +182,7 @@ client = OpenAI(
     api_key=os.environ["OPENROUTER_API_KEY"],          # already in .env
     default_headers={                                 # optional but recommended
         "HTTP-Referer": "https://github.com/<team>/averis-hackathon",
-        "X-Title": "SDOC Verifier",
+        "X-Title": "DockerOps",
     },
 )
 

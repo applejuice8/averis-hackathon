@@ -30,7 +30,7 @@ def get_client() -> OpenAI:
         _client = OpenAI(
             base_url=settings.openrouter_base_url,
             api_key=settings.openrouter_api_key,
-            default_headers={"X-Title": "SDOC Verifier"},
+            default_headers={"X-Title": "DockerOps"},
         )
     return _client
 
