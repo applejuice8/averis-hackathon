@@ -100,6 +100,10 @@ def test_detect_route_503_without_model(no_model, client):
     assert r.status_code == 503
 
 
+def test_model_details_route_503_without_model(no_model, client):
+    assert client.get("/api/spam/model").status_code == 503
+
+
 def test_detect_route_returns_verdict(no_model, monkeypatch, client):
     monkeypatch.setattr(spam, "_detector", _FakeDetector(0.9))
     r = client.post(
@@ -127,3 +131,20 @@ def test_packaged_model_serves_spam_verdict(monkeypatch, client):
     assert response.status_code == 200
     assert response.json()["spam"] is True
     assert 0 <= response.json()["score"] <= 1
+
+
+def test_packaged_model_exposes_sklearn_details(monkeypatch, client):
+    monkeypatch.setattr(settings, "spam_model_path", "api/ml/models/spam.joblib")
+    monkeypatch.setattr(spam, "_detector", None)
+    monkeypatch.setattr(spam, "_load_failed", False)
+
+    response = client.get("/api/spam/model")
+
+    assert response.status_code == 200
+    details = response.json()
+    assert details["framework"] == "scikit-learn"
+    assert details["classifier"] == "LogisticRegression"
+    assert details["vectorizer"] == "TfidfVectorizer"
+    assert details["last_updated_at"]
+    assert details["training_records"] == 519
+    assert details["metrics"] is None

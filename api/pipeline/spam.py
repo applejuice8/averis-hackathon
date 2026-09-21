@@ -48,6 +48,28 @@ def _detector_or_none():
     return _detector
 
 
+def model_details() -> dict | None:
+    det = _detector_or_none()
+    if det is None:
+        return None
+    classifier = det.pipeline.named_steps.get("classifier")
+    vectorizer = det.pipeline.named_steps.get("vectorizer")
+    metadata = det.metadata
+    return {
+        "model_name": metadata.get("model_name"),
+        "framework": "scikit-learn",
+        "classifier": type(classifier).__name__ if classifier is not None else None,
+        "vectorizer": type(vectorizer).__name__ if vectorizer is not None else None,
+        "threshold": det.threshold,
+        "last_updated_at": metadata.get("trained_at"),
+        "training_records": metadata.get("training_records"),
+        "spam_records": metadata.get("spam_records"),
+        "sklearn_version": metadata.get("sklearn_version"),
+        "evaluation_method": metadata.get("evaluation_method"),
+        "metrics": metadata.get("metrics"),
+    }
+
+
 def predict_spam(email: dict) -> SpamVerdict | None:
     """Spam verdict for an email record ({from, subject, body, ...});
     None when no model artifact is available."""

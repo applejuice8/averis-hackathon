@@ -11,6 +11,7 @@ from ml.model import SpamDetector, build_pipeline, format_email, save_detector  
 from ml.train import (  # noqa: E402
     DEFAULT_DATA_DIR,
     dataset_fingerprint,
+    evaluate,
     ground_truth_path,
     load_training_data,
 )
@@ -27,6 +28,17 @@ def test_training_dataset_is_deduplicated_and_reproducible():
     assert len(texts) == 519
     assert sum(labels) == 39
     assert dataset_fingerprint(texts, labels) == "751f5802ee4a82ba733ace311552597d757873d22951325aabc98db551b038fe"
+
+
+def test_cross_validated_metrics_are_recorded():
+    texts = [f"shipping documents ready vessel {i}" for i in range(10)] + [
+        f"claim prize click now winner {i}" for i in range(10)
+    ]
+
+    metrics = evaluate(texts, [0] * 10 + [1] * 10, threshold=0.5)
+
+    assert set(metrics) == {"accuracy", "precision", "recall", "f1"}
+    assert all(0 <= value <= 1 for value in metrics.values())
 
 
 def test_detector_round_trip(tmp_path):

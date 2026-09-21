@@ -6,11 +6,19 @@ from fastapi import APIRouter, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from pipeline.spam import predict_spam  # noqa: E402
+from pipeline.spam import model_details, predict_spam  # noqa: E402
 
-from ...schemas.spam import SpamDetectRequest, SpamDetectResponse  # noqa: E402
+from ...schemas.spam import SpamDetectRequest, SpamDetectResponse, SpamModelDetails  # noqa: E402
 
 router = APIRouter()
+
+
+@router.get("/spam/model", response_model=SpamModelDetails)
+async def get_spam_model():
+    details = await run_in_threadpool(model_details)
+    if details is None:
+        raise HTTPException(status_code=503, detail="spam model is unavailable")
+    return details
 
 
 @router.post("/spam/detect", response_model=SpamDetectResponse)
