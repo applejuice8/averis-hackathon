@@ -109,6 +109,13 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      # `vercel build` runs on this runner, not on Vercel, so it installs the
+      # web dependencies here with the project's package manager. Without
+      # pnpm on PATH it fails with `spawn pnpm ENOENT`. Same version CI pins.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
