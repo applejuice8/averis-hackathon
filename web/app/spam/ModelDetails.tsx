@@ -16,7 +16,7 @@ export default function ModelDetails({ model }: { model: SpamModelDetails | null
       onClick={() => setOpen(false)}>
       <section className="panel" style={{ width: "min(720px, 96vw)", maxHeight: "86vh", overflow: "auto", padding: 24 }} onClick={event => event.stopPropagation()}>
         <div className="section-heading" style={{ marginTop: 0 }}><div><div className="eyebrow">Spam classifier</div><h2 style={{ margin: "6px 0 0" }}>Model details</h2></div><button type="button" className="ghost" onClick={() => setOpen(false)}>Close</button></div>
-        {!model ? <div className="empty"><strong>Model unavailable</strong>The packaged scikit-learn artifact could not be loaded.</div> : <>
+        {!model ? <div className="hero-note bad" style={{ margin: "20px 0 0" }}><div><strong>Model unavailable</strong><p>The packaged scikit-learn artifact could not be loaded.</p></div></div> : <>
           <div className="cards" style={{ marginTop: 20 }}>
             <div className="card"><span className="lbl">Accuracy</span><div className="num">{percentage(metrics?.accuracy)}</div><small>Recorded evaluation</small></div>
             <div className="card"><span className="lbl">Precision</span><div className="num">{percentage(metrics?.precision)}</div><small>Recorded evaluation</small></div>

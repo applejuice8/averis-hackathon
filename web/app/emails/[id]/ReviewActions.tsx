@@ -45,14 +45,14 @@ export default function ReviewActions({ resultId, status, defectFields, canCompa
   }
 
   if (status === "FAILED") {
-    return <section className="panel review-form"><h2>Reviewer decision</h2><div className="empty"><strong>Retry required</strong>Processing failed, so there is no dependable result to approve or correct. Retry the email first.</div></section>;
+    return <section className="panel review-form"><h2>Reviewer decision</h2><div className="hero-note bad" style={{ margin: "16px 0 0" }}><div><strong>Retry required</strong><p>Processing failed, so there is no dependable result to approve or correct. Retry the email first.</p></div></div></section>;
   }
 
   const canSave = Boolean(decision && note.trim() && (decision !== "mismatch" || fields.length > 0));
   return <section className="panel review-form">
     <div className="eyebrow">Human review</div><h2 style={{ marginTop: 8 }}>Finalize the report</h2>
     <p className="muted">Check the source documents, choose the final outcome, and record why. Saving updates the report and removes resolved cases from the review queue.</p>
-    <div className="hero-note" style={{ margin: "16px 0" }}><div><strong>Current result: {STATUS[status] ?? status}</strong><p>{defectFields.length ? `Flagged fields: ${defectFields.map(field => FIELDS[field] ?? field).join(", ")}.` : "No mismatch fields are currently flagged."}</p></div></div>
+    <div className={`hero-note${status === "OK" ? "" : " bad"}`} style={{ margin: "16px 0" }}><div><strong>Current result: {STATUS[status] ?? status}</strong><p>{defectFields.length ? `Flagged fields: ${defectFields.map(field => FIELDS[field] ?? field).join(", ")}.` : "No mismatch fields are currently flagged."}</p></div></div>
     <LockedHint action="finalize this review"/>
     <fieldset disabled={locked} style={{ border: 0, padding: 0, margin: "18px 0" }}>
       <legend style={{ fontWeight: 700, marginBottom: 8 }}>Final decision</legend>
