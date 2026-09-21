@@ -82,10 +82,6 @@ class ProcessOutcome(BaseModel):
     category: str
 
 
-class MockDataLoaded(BaseModel):
-    loaded: int
-
-
 class EmailCreate(BaseModel):
     """Manual inbox entry — the fields of the bundle's email_*.json records.
     Documents arrive as uploaded files, not path strings."""

@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { apiBase, boundedBody, gatewayError, REVIEWER_COOKIE, sameOrigin } from "@/lib/server";
+import { apiBase, boundedBody, DATA_LOADED_COOKIE, gatewayError, REVIEWER_COOKIE, sameOrigin } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,6 +32,11 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     for (const name of ["content-type", "content-disposition"]) {
       const value = upstream.headers.get(name);
       if (value) out.set(name, value);
+    }
+    const loadedData = request.method === "POST" && path.join("/") === "gmail/sync";
+    if (upstream.ok && loadedData) {
+      const secure = Boolean(process.env.VERCEL) || request.nextUrl.protocol === "https:";
+      out.append("set-cookie", `${DATA_LOADED_COOKIE}=1; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`);
     }
     const empty = request.method === "HEAD" || [204, 205, 304].includes(upstream.status);
     return new Response(empty ? null : await boundedBody(upstream.body), { status: upstream.status, headers: out });

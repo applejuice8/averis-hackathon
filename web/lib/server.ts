@@ -1,6 +1,8 @@
 import "server-only";
+import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 
+export const DATA_LOADED_COOKIE = "sdoc_data_loaded";
 export const REVIEWER_COOKIE = "sdoc_reviewer";
 // Below Vercel's 4.5 MB request/response ceiling, including multipart overhead.
 export const MAX_PROXY_BYTES = 4_000_000;
@@ -16,6 +18,10 @@ export function apiBase(): string {
     throw new Error("API_URL must use HTTPS on Vercel.");
   }
   return url.origin;
+}
+
+export async function dataLoaded(): Promise<boolean> {
+  return (await cookies()).get(DATA_LOADED_COOKIE)?.value === "1";
 }
 
 export function sameOrigin(request: NextRequest): boolean {

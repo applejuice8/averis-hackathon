@@ -104,9 +104,9 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
   async function loadMockData() {
     setLoadingMock(true); setError(""); setNotice("");
     try {
-      const result = await request<{ loaded: number }>("/api/emails/mock", { method: "POST" });
-      setNotice(`Loaded ${result.loaded} mock message${result.loaded === 1 ? "" : "s"}.`);
-      router.replace("/inbox?loaded=1");
+      await request<{ loaded: boolean }>("/api/mock-data", { method: "POST" });
+      setNotice("Mock data loaded.");
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load mock data.");
     } finally { setLoadingMock(false); }
@@ -151,7 +151,7 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
         body: JSON.stringify({ message_ids: [...selected] }),
       });
       close();
-      router.replace("/inbox?loaded=1");
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gmail import failed.");
     } finally { setImporting(false); }

@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from pipeline.ingest import ingest
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -16,7 +15,6 @@ from ...schemas.emails import (
     EmailCreated,
     EmailDetail,
     EmailListItem,
-    MockDataLoaded,
     ProcessOutcome,
     ResultDetail,
 )
@@ -36,15 +34,6 @@ async def list_emails(
 ):
     rows = await emails_repo.list_with_latest_results(s, queue=queue, status=status, q=q)
     return [EmailListItem.from_row(e, r) for e, r in rows]
-
-
-@router.post("/emails/mock", response_model=MockDataLoaded, dependencies=[Depends(require_reviewer)])
-async def load_mock_data():
-    try:
-        loaded = await ingest()
-    except Exception as e:
-        raise HTTPException(400, str(e)) from e
-    return MockDataLoaded(loaded=loaded)
 
 
 @router.post(

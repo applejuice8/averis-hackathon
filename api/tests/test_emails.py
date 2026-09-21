@@ -118,23 +118,3 @@ def test_create_email_still_allows_subject_only_with_no_attachments(api):
 def test_create_email_needs_the_passcode(api, monkeypatch):
     monkeypatch.setattr(settings, "demo_passcode", "harbour-42")
     assert api.client.post("/api/emails", data=FORM).status_code == 401
-
-
-def test_load_mock_data_ingests_the_current_dataset(monkeypatch):
-    ingest = AsyncMock(return_value=520)
-    monkeypatch.setattr(emails_routes, "ingest", ingest)
-
-    r = TestClient(main.app).post("/api/emails/mock")
-
-    assert r.status_code == 200
-    assert r.json() == {"loaded": 520}
-    ingest.assert_awaited_once_with()
-
-
-def test_load_mock_data_reports_ingest_errors(monkeypatch):
-    monkeypatch.setattr(emails_routes, "ingest", AsyncMock(side_effect=OSError("dataset unavailable")))
-
-    r = TestClient(main.app).post("/api/emails/mock")
-
-    assert r.status_code == 400
-    assert r.json()["detail"] == "dataset unavailable"
