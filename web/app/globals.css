@@ -369,6 +369,22 @@ p {
     margin: 3px 0 0;
 }
 
+.hero-note.bad {
+    background: #fceceb;
+    border-color: #efc4c1;
+    color: #8f302f;
+}
+
+.hero-note.bad p,
+.hero-note.bad .muted,
+.hero-note.bad .text-link {
+    color: #9f3b39;
+}
+
+.hero-note.bad .hero-icon {
+    color: var(--bad);
+}
+
 .hero-note .hero-icon {
     font-size: 24px;
     color: var(--accent);
@@ -600,6 +616,13 @@ input[type=checkbox] {
 
 .error {
     color: var(--bad);
+}
+
+.error[role="alert"] {
+    background: #fceceb;
+    border: 1px solid #efc4c1;
+    border-radius: 7px;
+    padding: 10px 12px;
 }
 
 .success {

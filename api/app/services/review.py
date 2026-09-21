@@ -9,6 +9,10 @@ from ..repositories import reviews as reviews_repo
 from ..schemas.runs import ReviewActionIn
 
 
+class ReviewConflict(ValueError):
+    pass
+
+
 async def apply_action(
     s: AsyncSession, result_id: str | uuid.UUID, action: ReviewActionIn
 ) -> PipelineResult | None:
@@ -21,8 +25,11 @@ async def apply_action(
     res = await results_repo.get(s, result_id)
     if res is None:
         return None
+    if action.action == "confirm" and res.status not in {"OK", "MISMATCH"}:
+        raise ReviewConflict("Choose a final outcome before closing this review")
 
-    await reviews_repo.add(s, res.id, action.action, action.payload, action.reviewer)
+    audit_payload = {**(action.payload or {}), "note": action.note}
+    await reviews_repo.add(s, res.id, action.action, audit_payload, action.reviewer)
 
     if action.action == "override_status" and action.payload:
         res.status = action.payload.get("status", res.status)

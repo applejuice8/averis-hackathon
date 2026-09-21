@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from ..db.models import Run
 
@@ -56,10 +56,14 @@ class ReviewItem(BaseModel):
 class ReviewActionIn(BaseModel):
     action: ReviewActionKind
     payload: dict | None = None
-    reviewer: str | None = None
+    reviewer: str | None = Field(default=None, max_length=100)
+    note: str = Field(min_length=1, max_length=1_000)
 
     @model_validator(mode="after")
     def validate_payload(self):
+        self.note = self.note.strip()
+        if not self.note:
+            raise ValueError("Explain the review decision")
         payload = self.payload or {}
         if self.action == "override_fields":
             fields = payload.get("defect_fields")

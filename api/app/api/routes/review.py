@@ -33,7 +33,10 @@ async def review_action(
     body: ReviewActionIn,
     s: AsyncSession = Depends(get_db),
 ):
-    res = await review_service.apply_action(s, result_id, body)
+    try:
+        res = await review_service.apply_action(s, result_id, body)
+    except review_service.ReviewConflict as e:
+        raise HTTPException(409, str(e)) from e
     if res is None:
         raise HTTPException(404, "no such result")
     return ReviewOutcome(ok=True, status=res.status)
