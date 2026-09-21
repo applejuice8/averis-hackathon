@@ -147,5 +147,27 @@ def test_packaged_model_exposes_sklearn_details(monkeypatch, client):
     assert details["vectorizer"] == "TfidfVectorizer"
     assert details["last_updated_at"]
     assert details["training_records"] == 519
-    assert details["evaluation_method"] == "Fixed 20% stratified holdout (104 messages, 8 spam)"
+    assert details["evaluation_method"] == (
+        "Repeated 5-fold stratified cross-validation (3 repeats) plus a fixed 20% holdout"
+    )
     assert details["metrics"] == {"accuracy": 1.0, "precision": 1.0, "recall": 1.0, "f1": 1.0}
+    assert len(details["validation_runs"]) == 15
+    assert details["validation_runs"][0] == {
+        "iteration": 1,
+        "repeat": 1,
+        "fold": 1,
+        "training_records": 332,
+        "validation_records": 83,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+    }
+    assert details["validation_runs"][-1]["iteration"] == 15
+    assert details["holdout"] == {
+        "records": 104,
+        "spam_records": 8,
+        "true_negatives": 96,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "true_positives": 8,
+    }

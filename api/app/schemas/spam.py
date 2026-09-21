@@ -29,6 +29,26 @@ class SpamModelMetrics(BaseModel):
     f1: float
 
 
+class SpamValidationRun(BaseModel):
+    iteration: int
+    repeat: int
+    fold: int
+    training_records: int
+    validation_records: int
+    precision: float
+    recall: float
+    f1: float
+
+
+class SpamHoldoutDetails(BaseModel):
+    records: int
+    spam_records: int
+    true_negatives: int
+    false_positives: int
+    false_negatives: int
+    true_positives: int
+
+
 class SpamModelDetails(BaseModel):
     model_name: str | None
     framework: str
@@ -41,3 +61,5 @@ class SpamModelDetails(BaseModel):
     sklearn_version: str | None
     evaluation_method: str | None
     metrics: SpamModelMetrics | None
+    validation_runs: list[SpamValidationRun] | None
+    holdout: SpamHoldoutDetails | None

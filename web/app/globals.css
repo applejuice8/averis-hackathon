@@ -383,6 +383,17 @@ p {
     color: var(--bad);
 }
 
+.hero-note.warn {
+    background: #fff3d9;
+    border-color: #edcf91;
+    color: #7a5011;
+}
+
+.hero-note.warn p,
+.hero-note.warn .muted {
+    color: #865b18;
+}
+
 .hero-note .hero-icon {
     font-size: 24px;
     color: var(--accent);
