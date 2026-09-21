@@ -7,6 +7,65 @@ Bill-of-Lading check requests, compares the Shipping Instruction against the
 draft BL across seven fields — flagging exact mismatches or escalating
 untrustworthy documents to human review.
 
+**Team brotatoes** — Averis × Monash Hackathon 2026.
+
+| | |
+|---|---|
+| Live demo | <https://dockerops.vercel.app> |
+| API | <https://sdoc-api-969206696114.asia-southeast1.run.app/docs> |
+| Source | <https://github.com/applejuice8/secret-hack> |
+
+Browsing the live demo needs no login — the inbox, document comparisons,
+review queue and run history are all open. Making changes (starting a run,
+confirming a review, uploading an email) needs the reviewer passcode supplied
+with our submission.
+
+---
+
+## Quick start
+
+**Prerequisites** — Docker with Compose. Working without Docker instead needs
+Python 3.13 with [uv](https://docs.astral.sh/uv/) and Node 22 with pnpm 10.
+
+You will need a Postgres connection string ([Neon](https://neon.tech) free
+tier is fine). An OpenRouter key is optional: the pipeline is fully
+deterministic without one, and the AI assists are off by default.
+
+```bash
+git clone https://github.com/applejuice8/secret-hack.git
+cd secret-hack
+cp .env.example .env          # set NEON_DB_URI — every other value has a default
+docker compose up --build
+```
+
+Load the dataset and process it:
+
+```bash
+docker compose exec api uv run python -m pipeline.ingest   # 520 emails → Postgres
+docker compose exec api uv run python -m pipeline.run      # classify, read, compare
+```
+
+Then open <http://localhost:3000>. The API is on
+<http://localhost:8000> (`/docs` for the OpenAPI UI) and the provided scorer
+on <http://localhost:8080>.
+
+**Check it came up.** `curl localhost:8000/health` reports the database
+round-trip, the configured models and which assists are enabled — it returns
+503 rather than lying if Postgres is unreachable.
+
+**Run the tests.** 222 of them, needing no database and no network:
+
+```bash
+uv sync
+DATA_DIR=docs-provided/problem-statement/sdoc-hackathon-bundle uv run pytest api/tests -q
+```
+
+Without Docker: `uv sync` · `cd web && pnpm install` ·
+`uv run uvicorn app.main:app --app-dir api --reload` · `cd web && pnpm dev`.
+
+Scoring a run against the provided scorer, retraining the spam model and the
+Gmail import are covered in [§9](#9-run-it) and [§11](#11-gmail-integration-optional-inbox-source-local-only).
+
 ---
 
 ## 1. System architecture
