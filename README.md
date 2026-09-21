@@ -465,3 +465,111 @@ Endpoints: `GET /api/auth/google/start` · `GET /api/auth/google/callback` ·
 > `WEB_APP_URL` / `GOOGLE_REDIRECT_URI` to match. Refresh tokens are stored
 > in `gmail_accounts` in plaintext (hackathon default) — encrypt at rest
 > before pointing this at a real mailbox.
+
+---
+
+## 12. Challenges faced
+
+**The dataset teaches you its own conventions, and you have to refuse to
+learn them.** Attachments are named `email_004_SI.txt` / `email_004_BL.txt`,
+labels are spelled one way, and a parser built around that scores perfectly
+while understanding nothing. Every convention we leaned on got a deliberate
+escape hatch: SI/BL are re-identified by detected document type when the
+filenames say nothing, labels normalise through a synonym map (`POL`,
+`Load Port`, `Gross Wt (kgs)`, `毛重`), ports compare on the port name proper
+so `SHANGHAI, CHINA (CNSHA)` ≡ `SHANGHAI`, and blank tokens (`???`,
+`_______`, `TBA`, `N/A`) resolve to *missing*, not to *mismatched* — a
+different verdict with a different owner. Half the test suite exists to
+perturb those conventions and prove the pipeline survives it.
+
+**A perfect score is a claim you have to defend.** Final 1.0 on the provided
+data is a weak signal on its own: 520 synthetic emails, 46 end-to-end cases.
+We treated it as a starting point rather than a result, and wrote 15
+anti-overfit tests — renamed and reordered attachments, unrelated extra
+files, swapped label synonyms, asymmetric port formats, a mislabeled
+`*_BL.pdf` that actually contains an invoice, and a "please send me the BL"
+request that must read as *awaiting documents*, not as an escalation.
+
+**Spam looked solved and wasn't.** A domain blocklist and a regex hit 100%,
+which turned out to mean they had memorised the corpus. Replacing them
+became a measurement exercise instead of an opinion: stratified holdout,
+5-fold repeated cross-validation, threshold chosen from out-of-fold
+predictions only. Six candidates tied at F1 1.0 — because the data is
+trivially separable — so the tie broke on fit cost and word TF-IDF with
+balanced logistic regression shipped over the reference MLP. The honest
+finding is recorded in [`api/ml/PERFORMANCE.md`](api/ml/PERFORMANCE.md):
+40 spam records, nine unique subjects, six unique bodies. None of this
+generalises yet, and the document says so.
+
+**Free-tier models disappear underneath you.** Our first vision model,
+`nemotron-nano-12b-v2-vl:free`, started returning 404 from OpenRouter
+mid-build. That turned a single model id into a fallback chain — primary,
+then alternates, skipping anything dead or rate-limited and only failing
+once the whole chain is exhausted — plus a content-hash response cache, so
+re-reading the same document costs nothing against a shared quota.
+
+**Pulling the key should not break the product.** Running the suite the way
+CI does — no `NEON_DB_URI`, no `OPENROUTER_API_KEY` — broke at import,
+because the OpenAI SDK refuses to construct a client without credentials.
+The deterministic path never needs one, so the client became lazy. CI now
+runs with both secrets deliberately unset, which is how we keep noticing if
+something starts depending on them. The demo survives the key being revoked
+live; that property *is* the architecture.
+
+**Each half of the deploy needed the other half's URL first.** `deploy.sh`
+sets `CORS_ORIGINS` on the API from the Vercel origin, and Vercel needs the
+Cloud Run origin to build the web app. Neither exists before the other, so
+the deploy runs twice: API first against a placeholder, create the Vercel
+project against the real API URL, then re-run — idempotent, and it only
+rewrites `CORS_ORIGINS` when the image tag is unchanged.
+
+**The Vercel GitHub app was authorised on a personal fork**, not on this
+repository, so importing from the dashboard kept cloning the wrong project —
+and only the repo owner can change that. Rather than block on an
+authorisation we didn't control, web deploys go through the Vercel CLI with
+a scoped token, gated on the same green CI run as the Cloud Run job.
+
+**A student-owned cloud account is a real constraint.** Spend is bounded
+before it can happen, not after: `sdoc-api` runs at `--max-instances 1` so
+the in-process run guards behave globally, full runs are handed to a Cloud
+Run Job with a daily cap, the scorer is IAM-private and reachable only by
+the API's service account, and a Cloud Function disconnects billing outright
+if reported monthly cost passes a set MYR cutoff.
+
+---
+
+## 13. Future roadmap
+
+**Next — finish the human-in-the-loop story.** Reviewer corrections already
+persist in `reviews`, but nothing reads them back. Surfacing them as a
+corrections feed turns human judgement into training signal: which fields
+reviewers overrule most, which synonyms the parser keeps missing, which
+escalation reasons are noise. That is the cheapest path from *tool* to
+*system that improves*.
+
+**Then — meet the mail where it lives.** Gmail OAuth works locally today and
+is deliberately not wired into the cloud deploy. Making it production-real
+means encrypted refresh tokens, a registered production redirect URI, and
+IMAP / Microsoft Graph alongside it, so the product attaches to an existing
+shipping-ops mailbox instead of asking anyone to change how they work.
+
+**Beyond SI vs BL.** The comparison engine is document-pair agnostic — the
+7-field contract and the synonym map are configuration, not logic. Packing
+list vs commercial invoice, certificate of origin vs BL, and booking
+confirmation vs SI are the same shape of problem. A self-serve synonym table
+would let an ops team extend the vocabulary without a deploy.
+
+**Confidence instead of a binary.** Escalation is currently all-or-nothing.
+Grading it — low-OCR-confidence differs from a hard parse failure — lets
+reviewers triage by risk rather than by queue position, and gives per-field
+extraction provenance somewhere to live in the UI.
+
+**Hardening for anything past a demo.** Named reviewer identities and SSO in
+place of a shared passcode; Alembic migrations instead of `create_all` on
+startup; rate limiting and request logging; per-run LLM cost and quota
+telemetry; drift monitoring and periodic re-evaluation of the spam model
+against independently labelled mail before anyone relies on it.
+
+**And the boring one that pays off immediately:** authorise the Vercel
+GitHub app on this repository and pull requests get preview deployments, so
+changes get reviewed against a running site instead of a diff.
