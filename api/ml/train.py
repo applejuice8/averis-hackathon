@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import sklearn
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
 from .model import MODEL_NAME, build_pipeline, format_email, save_detector
 
@@ -65,8 +67,21 @@ def dataset_fingerprint(texts: list[str], labels: list[int]) -> str:
     return digest.hexdigest()
 
 
+def evaluate(texts: list[str], labels: list[int], threshold: float) -> dict[str, float]:
+    folds = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    probabilities = cross_val_predict(build_pipeline(), texts, labels, cv=folds, method="predict_proba")[:, 1]
+    predictions = probabilities >= threshold
+    return {
+        "accuracy": accuracy_score(labels, predictions),
+        "precision": precision_score(labels, predictions, zero_division=0),
+        "recall": recall_score(labels, predictions, zero_division=0),
+        "f1": f1_score(labels, predictions, zero_division=0),
+    }
+
+
 def train(data_dir: Path, output_path: Path) -> dict[str, object]:
     texts, labels = load_training_data(data_dir)
+    metrics = evaluate(texts, labels, DEFAULT_THRESHOLD)
     pipeline = build_pipeline()
     pipeline.fit(texts, labels)
     metadata: dict[str, object] = {
@@ -76,6 +91,8 @@ def train(data_dir: Path, output_path: Path) -> dict[str, object]:
         "spam_records": sum(labels),
         "dataset_sha256": dataset_fingerprint(texts, labels),
         "sklearn_version": sklearn.__version__,
+        "evaluation_method": "5-fold stratified cross-validation",
+        "metrics": metrics,
     }
     save_detector(pipeline, DEFAULT_THRESHOLD, metadata, output_path)
     return {**metadata, "threshold": DEFAULT_THRESHOLD, "output_path": str(output_path)}

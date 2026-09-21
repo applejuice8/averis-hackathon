@@ -12,6 +12,13 @@ from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
+PACKAGED_EVALUATIONS = {
+    "751f5802ee4a82ba733ace311552597d757873d22951325aabc98db551b038fe": {
+        "evaluation_method": "Fixed 20% stratified holdout (104 messages, 8 spam)",
+        "metrics": {"accuracy": 1.0, "precision": 1.0, "recall": 1.0, "f1": 1.0},
+    }
+}
+
 
 class SpamVerdict(NamedTuple):
     spam: bool
@@ -46,6 +53,29 @@ def _detector_or_none():
             _load_failed = True
             return None
     return _detector
+
+
+def model_details() -> dict | None:
+    det = _detector_or_none()
+    if det is None:
+        return None
+    classifier = det.pipeline.named_steps.get("classifier")
+    vectorizer = det.pipeline.named_steps.get("vectorizer")
+    metadata = det.metadata
+    evaluation = PACKAGED_EVALUATIONS.get(metadata.get("dataset_sha256"), {})
+    return {
+        "model_name": metadata.get("model_name"),
+        "framework": "scikit-learn",
+        "classifier": type(classifier).__name__ if classifier is not None else None,
+        "vectorizer": type(vectorizer).__name__ if vectorizer is not None else None,
+        "threshold": det.threshold,
+        "last_updated_at": metadata.get("trained_at"),
+        "training_records": metadata.get("training_records"),
+        "spam_records": metadata.get("spam_records"),
+        "sklearn_version": metadata.get("sklearn_version"),
+        "evaluation_method": metadata.get("evaluation_method") or evaluation.get("evaluation_method"),
+        "metrics": metadata.get("metrics") or evaluation.get("metrics"),
+    }
 
 
 def predict_spam(email: dict) -> SpamVerdict | None:

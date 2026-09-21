@@ -20,3 +20,24 @@ class SpamDetectRequest(BaseModel):
 class SpamDetectResponse(BaseModel):
     spam: bool
     score: float  # P(spam) in [0, 1]
+
+
+class SpamModelMetrics(BaseModel):
+    accuracy: float
+    precision: float
+    recall: float
+    f1: float
+
+
+class SpamModelDetails(BaseModel):
+    model_name: str | None
+    framework: str
+    classifier: str | None
+    vectorizer: str | None
+    threshold: float
+    last_updated_at: str | None
+    training_records: int | None
+    spam_records: int | None
+    sklearn_version: str | None
+    evaluation_method: str | None
+    metrics: SpamModelMetrics | None

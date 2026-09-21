@@ -81,6 +81,20 @@ export type GmailPreviewItem = {
   body: string;
 };
 
+export type SpamModelDetails = {
+  model_name: string | null;
+  framework: string;
+  classifier: string | null;
+  vectorizer: string | null;
+  threshold: number;
+  last_updated_at: string | null;
+  training_records: number | null;
+  spam_records: number | null;
+  sklearn_version: string | null;
+  evaluation_method: string | null;
+  metrics: { accuracy: number; precision: number; recall: number; f1: number } | null;
+};
+
 async function get<T>(path: string): Promise<T> {
   const base = process.env.API_URL || (process.env.VERCEL ? "" : "http://localhost:8000");
   if (!base) throw new Error("API_URL must be configured for this deployment.");
@@ -96,6 +110,7 @@ export const api = {
   runs: () => get<Run[]>("/api/runs"),
   review: () => get<ReviewItem[]>("/api/review"),
   gmailAccounts: () => get<GmailAccount[]>("/api/gmail/accounts"),
+  spamModel: () => get<SpamModelDetails>("/api/spam/model"),
 };
 
 export const COMPARE_FIELDS = [
