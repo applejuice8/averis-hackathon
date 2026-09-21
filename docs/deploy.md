@@ -1,4 +1,4 @@
-# Deploying SDOC Verifier
+# Deploying DockerOps
 
 Operator runbook for the Cloud Run + Vercel deployment. Design and cost
 rationale: [`docs/superpowers/plans/2026-09-20-vercel-cost-control-amendment.md`](superpowers/plans/2026-09-20-vercel-cost-control-amendment.md).

@@ -162,7 +162,7 @@ wheels = [
 ]
 
 [[package]]
-name = "averis-hackathon"
+name = "dockerops"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

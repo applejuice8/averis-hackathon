@@ -2,7 +2,7 @@
 
 > **Revised 2026-09-20:** Read [2026-09-20-vercel-cost-control-amendment.md](2026-09-20-vercel-cost-control-amendment.md) first. It is authoritative for deployment/costs. Tasks 1–5 were complete at `51fb6ab` (90 passing tests). The Vercel proxy is implemented locally; the RM40 billing guard is now deployed and armed. See `docs/cost-guard-status.md`. The web/backend application remains undeployed. Keep backend implementation detail below, but do not overwrite the newer files with historical snippets. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Put SDOC Verifier on Vercel with a GCP Cloud Run backend, low fixed costs, a user-selected monthly billing-disconnect threshold, reviewer access, live intake, and verified deployment gates.
+**Goal:** Put DockerOps on Vercel with a GCP Cloud Run backend, low fixed costs, a user-selected monthly billing-disconnect threshold, reviewer access, live intake, and verified deployment gates.
 
 **Architecture:** Vercel builds `web/` natively and proxies browser API calls at request time. GCP hosts the API, private scorer and worker job; Neon and GCS remain. The billing guard must be armed before public deployment. See the amendment for the revised topology.
 

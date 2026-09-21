@@ -1,4 +1,4 @@
-# SDOC Verifier
+# DockerOps
 
 AI copilot for shipping-document operations (hackathon prototype).
 
