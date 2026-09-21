@@ -44,7 +44,7 @@ jobs:
     env:
       PROJECT_ID: averis-email-system
       REGION: asia-southeast1
-      WEB_URL: https://secret-hack.vercel.app
+      WEB_URL: https://dockerops.vercel.app
     steps:
       - name: Checkout the commit CI just verified
         uses: actions/checkout@v4
@@ -158,5 +158,5 @@ jobs:
             echo ""
             echo "- Commit: \`${{ github.event.workflow_run.head_sha }}\`"
             echo "- Deployment: ${{ steps.deploy.outputs.url }}"
-            echo "- Alias: https://secret-hack.vercel.app"
+            echo "- Alias: https://dockerops.vercel.app"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -3,7 +3,7 @@
 > **Team name:** brotatoes
 > **Project name:** DockerOps — AI copilot for shipping-document operations
 > **Event:** Averis × Monash Hackathon 2026
-> **Live demo:** https://secret-hack.vercel.app
+> **Live demo:** https://dockerops.vercel.app
 > **API (OpenAPI docs):** https://sdoc-api-969206696114.asia-southeast1.run.app/docs
 
 ---
@@ -255,7 +255,7 @@ Scored by the organizers' **own scorer service against private ground truth** �
 
 | Resource | URL |
 |---|---|
-| Live prototype | https://secret-hack.vercel.app |
+| Live prototype | https://dockerops.vercel.app |
 | API / OpenAPI docs | https://sdoc-api-969206696114.asia-southeast1.run.app/docs |
 | Slide deck | `pitch/DockerOps-pitch-deck.pptx` |
 | Deployment runbook | `docs/deploy.md` |

@@ -158,7 +158,7 @@ rather than trusting this table after a redeploy.
 
 | | URL |
 |---|---|
-| Web (Vercel) | https://secret-hack.vercel.app |
+| Web (Vercel) | https://dockerops.vercel.app |
 | API (Cloud Run) | https://sdoc-api-969206696114.asia-southeast1.run.app |
 | API docs | https://sdoc-api-969206696114.asia-southeast1.run.app/docs |
 | Deployed image tag | `6e55ccb` (`.../sdoc/api:6e55ccb`) |
