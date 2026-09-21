@@ -147,4 +147,5 @@ def test_packaged_model_exposes_sklearn_details(monkeypatch, client):
     assert details["vectorizer"] == "TfidfVectorizer"
     assert details["last_updated_at"]
     assert details["training_records"] == 519
-    assert details["metrics"] is None
+    assert details["evaluation_method"] == "Fixed 20% stratified holdout (104 messages, 8 spam)"
+    assert details["metrics"] == {"accuracy": 1.0, "precision": 1.0, "recall": 1.0, "f1": 1.0}
