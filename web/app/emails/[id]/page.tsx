@@ -6,6 +6,7 @@ import StatusBadge from "../../components/StatusBadge";
 import LlmAssist from "./LlmAssist";
 import ReviewActions from "./ReviewActions";
 import Attachments from "./Attachments";
+import EvidenceDetails from "./EvidenceDetails";
 export const dynamic = "force-dynamic";
 export default async function EmailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -25,6 +26,6 @@ export default async function EmailPage({ params }: { params: Promise<{ id: stri
     <Attachments emailId={id} files={e.attachments} defectFields={r?.defect_fields ?? []} siFields={r?.si_fields ?? null} blFields={r?.bl_fields ?? null} docTypes={r?.doc_types ?? null} comparedFiles={comparedAttachments} />
     <LlmAssist emailId={id} />
     <details className="panel"><summary>Original email</summary><pre className="email-body">{e.body}</pre></details>
-    {r && <details className="panel"><summary>Detection evidence & classification source</summary><p className="muted">Classification: {r.decided_by === "llm" ? "model" : r.decided_by || "unknown"}. Review actions can override the original verdict.</p><pre>{JSON.stringify({ document_types: r.doc_types, evidence: r.evidence }, null, 2)}</pre></details>}
+    {r && <EvidenceDetails decidedBy={r.decided_by} evidence={r.evidence} docTypes={r.doc_types}/>}
   </>;
 }
