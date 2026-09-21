@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { api, COMPARE_FIELDS } from "@/lib/api";
 import { FIELDS, QUEUES, REASONS } from "@/lib/labels";
+import { dataLoaded } from "@/lib/server";
 import RetryButton from "../../components/RetryButton";
 import StatusBadge from "../../components/StatusBadge";
 import LlmAssist from "./LlmAssist";
@@ -9,6 +11,7 @@ import Attachments from "./Attachments";
 export const dynamic = "force-dynamic";
 export default async function EmailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  if (!await dataLoaded()) notFound();
   const e = await api.email(id);
   const r = e.result;
   const comparedAttachments = Array.isArray(r?.evidence?.attachments) ? r.evidence.attachments.filter((file): file is string => typeof file === "string") : [];

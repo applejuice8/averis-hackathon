@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { QUEUES, REASONS } from "@/lib/labels";
+import { dataLoaded } from "@/lib/server";
 import StatusBadge from "./components/StatusBadge";
 export const dynamic = "force-dynamic";
 export default async function Dashboard() {
-  const [emails, runs] = await Promise.all([api.emails(), api.runs()]);
+  const loaded = await dataLoaded();
+  const [emails, runs] = loaded ? await Promise.all([api.emails(), api.runs()]) : [[], []];
   const processed = emails.filter(e => e.status);
   const checks = emails.filter(e => e.category === "BL_COMPARISON");
   const mismatches = emails.filter(e => e.status === "MISMATCH");

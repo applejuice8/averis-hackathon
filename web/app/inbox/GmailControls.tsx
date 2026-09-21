@@ -75,7 +75,9 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
   const { unlocked } = useReviewer();
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [loadingMock, setLoadingMock] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [days, setDays] = useState(1);
   const [preview, setPreview] = useState<GmailPreviewItem[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -99,8 +101,19 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
     window.location.href = "/api/auth/google/start";
   }
 
+  async function loadMockData() {
+    setLoadingMock(true); setError(""); setNotice("");
+    try {
+      await request<{ loaded: boolean }>("/api/mock-data", { method: "POST" });
+      setNotice("Mock data loaded.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load mock data.");
+    } finally { setLoadingMock(false); }
+  }
+
   async function openPreview() {
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setNotice("");
     try {
       const items = await request<GmailPreviewItem[]>(`/api/gmail/preview?days=${days}`);
       setPreview(items);
@@ -145,7 +158,15 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
   }
 
   if (!connected) {
-    return <div><button onClick={connect}>Import from Gmail</button>{error && <p className="error" role="alert">{error}</p>}</div>;
+    return <div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button type="button" className="ghost" onClick={loadMockData} disabled={loadingMock || !unlocked}>{loadingMock ? "Loading…" : "Load mock data"}</button>
+        <button onClick={connect} disabled={loadingMock}>Import from Gmail</button>
+      </div>
+      <LockedHint action="load mock data"/>
+      {notice && <p className="muted" role="status">{notice}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </div>;
   }
 
   const items = preview ?? [];
@@ -176,14 +197,17 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
 
   return <div>
     <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
-      <select aria-label="Sync window" value={days} onChange={e => setDays(Number(e.target.value))} disabled={busy}>
+      <select aria-label="Sync window" value={days} onChange={e => setDays(Number(e.target.value))} disabled={busy || loadingMock}>
         {WINDOWS.map(w => <option key={w.days} value={w.days}>{w.label}</option>)}
       </select>
-      <button onClick={openPreview} disabled={busy}>{busy ? "Loading…" : "Sync Gmail"}</button>
+      <button type="button" className="ghost" onClick={loadMockData} disabled={busy || loadingMock || !unlocked}>{loadingMock ? "Loading…" : "Load mock data"}</button>
+      <button onClick={openPreview} disabled={busy || loadingMock}>{busy ? "Loading…" : "Sync Gmail"}</button>
     </div>
+    <LockedHint action="load mock data"/>
     <p className="muted" style={{ fontSize: 11 }}>
       {connected.google_email}{connected.last_synced_at ? ` · last synced ${new Date(connected.last_synced_at).toLocaleString()}` : " · not synced yet"}
     </p>
+    {notice && <p className="muted" role="status">{notice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
 
     {preview !== null && (

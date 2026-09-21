@@ -1,11 +1,13 @@
 import { api } from "@/lib/api";
 import { QUEUES } from "@/lib/labels";
+import { dataLoaded } from "@/lib/server";
 import CalendarView from "./CalendarView";
 
 export const dynamic = "force-dynamic";
 
 export default async function CalendarPage() {
-  const items = await api.calendar();
+  const loaded = await dataLoaded();
+  const items = loaded ? await api.calendar() : [];
   const counts = items.reduce<Record<string, number>>((acc, item) => {
     const key = item.category ?? "UNTRIAGED";
     acc[key] = (acc[key] ?? 0) + 1;
