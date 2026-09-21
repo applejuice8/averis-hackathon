@@ -26,6 +26,6 @@ export default async function EmailPage({ params }: { params: Promise<{ id: stri
     <Attachments emailId={id} files={e.attachments} defectFields={r?.defect_fields ?? []} siFields={r?.si_fields ?? null} blFields={r?.bl_fields ?? null} docTypes={r?.doc_types ?? null} comparedFiles={comparedAttachments} />
     <LlmAssist emailId={id} />
     <details className="panel"><summary>Original email</summary><pre className="email-body">{e.body}</pre></details>
-    {r && <EvidenceDetails decidedBy={r.decided_by} evidence={r.evidence} docTypes={r.doc_types}/>}
+    {r && <EvidenceDetails category={r.category} status={r.status} reviewReason={r.review_reason} decidedBy={r.decided_by} defectFields={r.defect_fields} siFields={r.si_fields} blFields={r.bl_fields} evidence={r.evidence}/>}
   </>;
 }

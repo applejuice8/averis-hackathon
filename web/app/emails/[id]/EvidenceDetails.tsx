@@ -1,65 +1,81 @@
-import type { ReactNode } from "react";
 import { FIELDS } from "@/lib/labels";
 
 const SOURCES: Record<string, { label: string; description: string }> = {
-  rule: { label: "Deterministic rules", description: "Matched transparent shipping-workflow rules." },
-  ml: { label: "Scikit-learn model", description: "Scored by the trained spam classifier." },
-  llm: { label: "Language model", description: "Classified by the configured language model fallback." },
+  rule: { label: "Fixed rules", description: "The message matched a known shipping workflow." },
+  ml: { label: "Spam model", description: "The spam model scored this message." },
+  llm: { label: "AI fallback", description: "AI was used because the fixed rules were not certain." },
 };
 
-const LABELS: Record<string, string> = {
-  attachments: "Documents checked",
-  files: "Unreadable files",
-  errors: "Reading errors",
-  detected: "Detected document types",
-  blank_fields: "Missing required fields",
-  si: "Shipping instruction",
-  bl: "Bill of Lading",
+const CATEGORY_FINDINGS: Record<string, string> = {
+  SPAM: "This message looks like spam.",
+  SI_REQUEST: "This message asks for or includes a shipping instruction.",
+  INVOICE_QUERY: "This message is about an invoice, charge, or payment.",
+  GENERAL: "This message does not need a shipping document check.",
 };
 
-const DOCUMENT_TYPES: Record<string, string> = {
-  SI: "Shipping instruction",
-  BL: "Bill of Lading",
-  invoice: "Invoice",
-  other: "Other document",
-};
-
-function labelFor(key: string): string {
-  return FIELDS[key] ?? LABELS[key] ?? key.replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
+function value(value: unknown): string {
+  return value == null || value === "" ? "missing" : String(value);
 }
 
-function scalar(value: unknown): string {
-  if (value == null || value === "") return "Not detected";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string") return DOCUMENT_TYPES[value] ?? value;
-  return String(value);
+function fileName(path: unknown): string {
+  return String(path).split("/").pop() || String(path);
 }
 
-function EvidenceValue({ value }: { value: unknown }): ReactNode {
-  if (Array.isArray(value)) {
-    if (!value.length) return <span className="muted">None</span>;
-    return <div className="actions">{value.map((item, index) => <span className="badge dim" key={`${String(item)}-${index}`}>{FIELDS[String(item)] ?? scalar(item)}</span>)}</div>;
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function findings({ category, status, reviewReason, defectFields, siFields, blFields, evidence }: EvidenceProps): string[] {
+  if (status === "MISMATCH" && defectFields.length) {
+    return defectFields.map(field => `${FIELDS[field] ?? field} mismatch: SI says “${value(siFields?.[field])}”; BL says “${value(blFields?.[field])}”.`);
   }
-  if (value && typeof value === "object") {
-    return <dl style={{ display: "grid", gridTemplateColumns: "minmax(140px, 1fr) 2fr", gap: "8px 16px", margin: 0 }}>
-      {Object.entries(value).map(([key, nested]) => <div key={key} style={{ display: "contents" }}><dt className="muted">{labelFor(key)}</dt><dd style={{ margin: 0 }}><EvidenceValue value={nested}/></dd></div>)}
-    </dl>;
+
+  if (reviewReason === "missing_attachment") return ["The shipping instruction or Bill of Lading is missing."];
+  if (reviewReason === "unreadable") {
+    const files = stringList(evidence?.files).map(fileName);
+    return [files.length ? `We could not read ${files.join(" and ")}.` : "We could not read one or more documents."];
   }
-  return scalar(value);
+  if (reviewReason === "wrong_doc_type") {
+    const detected = objectValue(evidence?.detected);
+    const messages = [];
+    if (detected.si !== "SI") messages.push(`The shipping instruction file looks like ${value(detected.si)}.`);
+    if (detected.bl !== "BL") messages.push(`The Bill of Lading file looks like ${value(detected.bl)}.`);
+    return messages.length ? messages : ["One or more files are the wrong document type."];
+  }
+  if (reviewReason === "missing_value") {
+    const fields = stringList(evidence?.blank_fields).map(field => FIELDS[field] ?? field);
+    return [fields.length ? `${fields.join(" and ")} ${fields.length === 1 ? "is" : "are"} missing.` : "One or more required details are missing."];
+  }
+  if (category === "BL_COMPARISON") {
+    return [siFields && blFields ? "The checked SI and Bill of Lading fields match." : "No document mismatch was found."];
+  }
+  return [CATEGORY_FINDINGS[category] ?? "No issue was found."];
 }
 
-export default function EvidenceDetails({ decidedBy, evidence, docTypes }: { decidedBy: string | null; evidence: Record<string, unknown> | null; docTypes: Record<string, string> | null }) {
-  const source = SOURCES[decidedBy ?? ""] ?? { label: "Unknown source", description: "No classification source was recorded." };
-  const rationale = typeof evidence?.rationale === "string" ? evidence.rationale : null;
-  const evidenceRows = Object.entries(evidence ?? {}).filter(([key]) => key !== "rationale");
+type EvidenceProps = {
+  category: string;
+  status: string;
+  reviewReason: string | null;
+  decidedBy: string | null;
+  defectFields: string[];
+  siFields: Record<string, unknown> | null;
+  blFields: Record<string, unknown> | null;
+  evidence: Record<string, unknown> | null;
+};
+
+export default function EvidenceDetails(props: EvidenceProps) {
+  const source = SOURCES[props.decidedBy ?? ""] ?? { label: "Unknown", description: "The decision source was not recorded." };
+  const messages = findings(props);
   return <details className="panel">
-    <summary>Detection evidence & classification source</summary>
-    <div style={{ display: "grid", gap: 20, marginTop: 18 }}>
-      <section><div className="eyebrow">Classification source</div><div className="actions" style={{ marginTop: 8 }}><span className="badge info">{source.label}</span><span className="muted">{source.description}</span></div></section>
-      <section><div className="eyebrow">Why this decision was made</div><p style={{ marginBottom: 0 }}>{rationale ?? "No rationale was recorded for this result."}</p></section>
-      {docTypes && Object.keys(docTypes).length > 0 && <section><div className="eyebrow">Document types</div><div style={{ marginTop: 8 }}><EvidenceValue value={docTypes}/></div></section>}
-      {evidenceRows.length > 0 && <section><div className="eyebrow">Supporting evidence</div><dl style={{ display: "grid", gap: 14, margin: "10px 0 0" }}>{evidenceRows.map(([key, value]) => <div key={key}><dt style={{ fontWeight: 650 }}>{labelFor(key)}</dt><dd style={{ margin: "5px 0 0" }}><EvidenceValue value={value}/></dd></div>)}</dl></section>}
-      <p className="muted" style={{ margin: 0 }}>Review actions may override the original verdict without changing this recorded machine evidence.</p>
+    <summary>Why this result?</summary>
+    <div style={{ display: "grid", gap: 18, marginTop: 18 }}>
+      <section><div className="eyebrow">Finding</div><ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>{messages.map(message => <li key={message} style={{ marginTop: 6 }}>{message}</li>)}</ul></section>
+      <section><div className="eyebrow">How it was checked</div><div className="actions" style={{ marginTop: 8 }}><span className="badge info">{source.label}</span><span className="muted">{source.description}</span></div></section>
+      <p className="muted" style={{ margin: 0 }}>A reviewer can correct this result after checking the original documents.</p>
     </div>
   </details>;
 }
