@@ -348,39 +348,58 @@ separate, deliberate change wires OAuth secrets and a production redirect
 URI into the deploy. Do not expect "Import from Gmail" to work on the live
 demo URL.
 
-## Vercel Git integration — currently manual
+## Vercel deploys
 
-The Vercel project is NOT connected to the shared repo's GitHub integration.
-The Vercel GitHub app is authorised on a personal fork, not on
-`applejuice8/secret-hack`, so importing from the dashboard kept cloning the
-wrong repository.
+`main` deploys the web app automatically, from the `web` job in
+`.github/workflows/deploy.yml`. Like the Cloud Run job it hangs off
+`workflow_run`, so it only fires for a commit whose entire CI run passed.
+The two jobs are independent on purpose: a failed Cloud Run deploy should
+not strand a web fix, and the web app resolves `API_URL` per request, so
+neither has to go first.
 
-Current workaround — the project is linked locally and deployed by CLI, from
-the **repo root** (not from `web/`; the project's Root Directory is already
-`web`, so running the CLI inside `web/` makes Vercel look for `web/web`):
+It deploys with the Vercel CLI and a token rather than the Git integration,
+because the Vercel GitHub app is authorised on a personal fork and not on
+`applejuice8/secret-hack` — importing from the dashboard kept cloning the
+wrong repository, and only the repo owner can fix that.
+
+### Required repo secrets
+
+Whoever owns the Vercel project adds these three under
+Settings -> Secrets and variables -> Actions:
+
+| Secret | Where it comes from |
+|---|---|
+| `VERCEL_TOKEN` | vercel.com/account/tokens — scope it to this project |
+| `VERCEL_ORG_ID` | `.vercel/project.json` after `npx vercel link`, or project Settings |
+| `VERCEL_PROJECT_ID` | same place |
+
+Until all three exist the job logs a warning and stops without failing, and
+the web app stays on the manual path below. The Cloud Run job is unaffected.
+
+### Deploying by hand
+
+Still works, and is the fallback if the token is revoked. Run from the
+**repo root**, not from `web/` — the project's Root Directory is already
+`web`, so running the CLI inside `web/` makes Vercel look for `web/web`:
 
 ```bash
 npx vercel          # preview
 npx vercel --prod   # production
 ```
 
-Consequences while this stands:
-- Pushing to `main` does NOT redeploy the web app. Someone must run
-  `npx vercel --prod` by hand.
-- Pull requests get no automatic preview deployments.
-- Task 19's deploy-on-merge automation covers the Cloud Run side only; the
-  web side stays manual until this is fixed.
+### Still worth doing: the Git integration
 
-Permanent fix, which needs the repo owner (`applejuice8`), not a
-collaborator:
+The token path covers production deploys off `main`. It does **not** give
+pull requests preview deployments — only the GitHub app does. If the owner
+(`applejuice8`) gets round to it:
+
 1. Owner authorises the Vercel GitHub app for `applejuice8/secret-hack`.
 2. In the Vercel project: Settings -> Git -> connect it to that repository.
 3. Keep Root Directory `web`, and keep `API_URL` scoped to **Production
    only**, so preview deployments cannot write to production data.
 4. Delete any stray `web/.vercel` directory left by a CLI run from the wrong
    working directory.
-
-After that, `main` deploys production automatically and PRs get previews.
+5. Drop the `web` job from `deploy.yml`, or the same commit deploys twice.
 
 ## Troubleshooting
 

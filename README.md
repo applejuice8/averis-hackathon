@@ -300,7 +300,9 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 │                                demo-reset · monitoring · killswitch (RM40 guard)
 ├── docs/deploy.md              Cloud Run + Vercel runbook
 ├── secrets/                    git-ignored (local answer key; never committed)
-├── .github/workflows/ci.yml    pytest + ruff + tsc + next build
+├── .github/workflows/
+│   ├── ci.yml                  ruff + pytest + tsc + next build + image smoke
+│   └── deploy.yml              main, after CI passes → Cloud Run + Vercel
 └── plans/                      requirements + technical plan docs
 ```
 
@@ -352,6 +354,12 @@ never load an uploaded or otherwise untrusted model file.
 ## 10. Cloud deployment (Google Cloud Run + Vercel)
 
 **Status: live.** Operator runbook: [docs/deploy.md](docs/deploy.md).
+
+Both halves deploy themselves. A push to `main` runs CI (ruff, pytest,
+`tsc`, `next build`, container smoke); only if every job passes does
+`.github/workflows/deploy.yml` fire, pushing the API to Cloud Run
+(Workload Identity Federation — no service-account key is stored in this
+repo) and the web app to Vercel, then smoke-testing what it just shipped.
 
 | | |
 |---|---|
