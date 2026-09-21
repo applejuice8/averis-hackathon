@@ -19,12 +19,17 @@ uptime_id() { # uptime_id DISPLAY_NAME -> check id or ""
 }
 
 ensure_uptime() { # ensure_uptime DISPLAY_NAME HOST PATH -> check id
+  # PATH is given WITHOUT its leading slash (healthz, not /healthz) and the
+  # slash is added in Python. Git Bash on Windows rewrites any argument that
+  # starts with "/" into a Windows path before the native python.exe sees it,
+  # which silently created checks probing "/C:/Program Files/Git/healthz".
   local id body
   id="$(uptime_id "$1")"
   if [[ -z "$id" ]]; then
     body="$("$PY" -c '
 import json, sys
 name, host, path, project = sys.argv[1:5]
+path = "/" + path.lstrip("/")
 print(json.dumps({
     "displayName": name,
     "monitoredResource": {"type": "uptime_url", "labels": {"project_id": project, "host": host}},
@@ -37,8 +42,8 @@ print(json.dumps({
   echo "$id"
 }
 
-WEB_CHECK="$(ensure_uptime sdoc-web "$WEB_HOST" /healthz)"
-API_CHECK="$(ensure_uptime sdoc-api-livez "$API_HOST" /livez)"
+WEB_CHECK="$(ensure_uptime sdoc-web "$WEB_HOST" healthz)"
+API_CHECK="$(ensure_uptime sdoc-api-livez "$API_HOST" livez)"
 CHANNEL="$(find_channel "$ALERT_EMAIL")"
 [[ -n "$CHANNEL" ]] || { echo "no alert channel for $ALERT_EMAIL; run bootstrap.sh first" >&2; exit 1; }
 
