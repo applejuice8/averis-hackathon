@@ -93,6 +93,24 @@ export type SpamModelDetails = {
   sklearn_version: string | null;
   evaluation_method: string | null;
   metrics: { accuracy: number; precision: number; recall: number; f1: number } | null;
+  validation_runs: Array<{
+    iteration: number;
+    repeat: number;
+    fold: number;
+    training_records: number;
+    validation_records: number;
+    precision: number;
+    recall: number;
+    f1: number;
+  }> | null;
+  holdout: {
+    records: number;
+    spam_records: number;
+    true_negatives: number;
+    false_positives: number;
+    false_negatives: number;
+    true_positives: number;
+  } | null;
 };
 
 async function get<T>(path: string): Promise<T> {
