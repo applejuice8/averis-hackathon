@@ -363,7 +363,7 @@ repo) and the web app to Vercel, then smoke-testing what it just shipped.
 
 | | |
 |---|---|
-| Web | Vercel, https://secret-hack.vercel.app |
+| Web | Vercel, https://dockerops.vercel.app |
 | API | Cloud Run, https://sdoc-api-969206696114.asia-southeast1.run.app ([`/docs`](https://sdoc-api-969206696114.asia-southeast1.run.app/docs) for the OpenAPI UI) |
 
 ```
