@@ -70,12 +70,13 @@ function groupKey(d: Date | null, mode: string): string {
   return "";
 }
 
-export default function GmailControls({ accounts }: { accounts: GmailAccount[] }) {
+export default function GmailControls({ accounts, mockLoaded }: { accounts: GmailAccount[]; mockLoaded: boolean }) {
   const router = useRouter();
   const { unlocked } = useReviewer();
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [loadingMock, setLoadingMock] = useState(false);
+  const [clearingMock, setClearingMock] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [days, setDays] = useState(1);
@@ -87,6 +88,7 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
   const [groupBy, setGroupBy] = useState("none");
   const [active, setActive] = useState<GmailPreviewItem | null>(null);
   const connected = accounts[0] ?? null;
+  const mockBusy = loadingMock || clearingMock;
 
   // lock page scroll while the modal is open so scrolling stays inside it
   useEffect(() => {
@@ -110,6 +112,17 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load mock data.");
     } finally { setLoadingMock(false); }
+  }
+
+  async function clearMockData() {
+    setClearingMock(true); setError(""); setNotice("");
+    try {
+      await request<{ loaded: boolean }>("/api/mock-data", { method: "DELETE" });
+      setNotice("Mock data cleared.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear mock data.");
+    } finally { setClearingMock(false); }
   }
 
   async function openPreview() {
@@ -160,10 +173,12 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
   if (!connected) {
     return <div>
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="ghost" onClick={loadMockData} disabled={loadingMock || !unlocked}>{loadingMock ? "Loading…" : "Load mock data"}</button>
-        <button onClick={connect} disabled={loadingMock}>Import from Gmail</button>
+        {mockLoaded
+          ? <button type="button" className="ghost" onClick={clearMockData} disabled={mockBusy || !unlocked}>{clearingMock ? "Clearing…" : "Clear mock data"}</button>
+          : <button type="button" className="ghost" onClick={loadMockData} disabled={mockBusy || !unlocked}>{loadingMock ? "Loading…" : "Load mock data"}</button>}
+        <button onClick={connect} disabled={mockBusy}>Import from Gmail</button>
       </div>
-      <LockedHint action="load mock data"/>
+      <LockedHint action={mockLoaded ? "clear mock data" : "load mock data"}/>
       {notice && <p className="muted" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
     </div>;
@@ -197,13 +212,15 @@ export default function GmailControls({ accounts }: { accounts: GmailAccount[] }
 
   return <div>
     <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
-      <select aria-label="Sync window" value={days} onChange={e => setDays(Number(e.target.value))} disabled={busy || loadingMock}>
+      <select aria-label="Sync window" value={days} onChange={e => setDays(Number(e.target.value))} disabled={busy || mockBusy}>
         {WINDOWS.map(w => <option key={w.days} value={w.days}>{w.label}</option>)}
       </select>
-      <button type="button" className="ghost" onClick={loadMockData} disabled={busy || loadingMock || !unlocked}>{loadingMock ? "Loading…" : "Load mock data"}</button>
-      <button onClick={openPreview} disabled={busy || loadingMock}>{busy ? "Loading…" : "Sync Gmail"}</button>
+      {mockLoaded
+        ? <button type="button" className="ghost" onClick={clearMockData} disabled={busy || mockBusy || !unlocked}>{clearingMock ? "Clearing…" : "Clear mock data"}</button>
+        : <button type="button" className="ghost" onClick={loadMockData} disabled={busy || mockBusy || !unlocked}>{loadingMock ? "Loading…" : "Load mock data"}</button>}
+      <button onClick={openPreview} disabled={busy || mockBusy}>{busy ? "Loading…" : "Sync Gmail"}</button>
     </div>
-    <LockedHint action="load mock data"/>
+    <LockedHint action={mockLoaded ? "clear mock data" : "load mock data"}/>
     <p className="muted" style={{ fontSize: 11 }}>
       {connected.google_email}{connected.last_synced_at ? ` · last synced ${new Date(connected.last_synced_at).toLocaleString()}` : " · not synced yet"}
     </p>
