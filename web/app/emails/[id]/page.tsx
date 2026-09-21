@@ -24,7 +24,7 @@ export default async function EmailPage({ params }: { params: Promise<{ id: stri
       const missing = r.si_fields?.[f] == null || r.bl_fields?.[f] == null || r.si_fields?.[f] === "" || r.bl_fields?.[f] === "";
       return <tr key={f}><td>{FIELDS[f]}</td><td className={diff ? "mismatch" : ""}>{String(r.si_fields?.[f] ?? "—")}</td><td className={diff ? "mismatch" : ""}>{String(r.bl_fields?.[f] ?? "—")}</td><td><span className={`badge ${missing ? "warn" : diff ? "bad" : "ok"}`}>{missing ? "Missing value" : diff ? "Differs" : "No flagged defect"}</span></td></tr>;
     })}</tbody></table></div></>}
-    {r && <ReviewActions key={`${r.result_id}-${r.status}-${r.defect_fields.join()}`} resultId={r.result_id} status={r.status} defectFields={r.defect_fields} canCompare={r.category === "BL_COMPARISON"} />}
+    {r && <ReviewActions resultId={r.result_id} status={r.status} defectFields={r.defect_fields} canCompare={r.category === "BL_COMPARISON"} />}
     <Attachments emailId={id} files={e.attachments} defectFields={r?.defect_fields ?? []} siFields={r?.si_fields ?? null} blFields={r?.bl_fields ?? null} docTypes={r?.doc_types ?? null} comparedFiles={comparedAttachments} />
     <LlmAssist emailId={id} />
     <details className="panel"><summary>Original email</summary><pre className="email-body">{e.body}</pre></details>

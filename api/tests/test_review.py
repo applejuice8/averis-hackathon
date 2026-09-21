@@ -18,14 +18,20 @@ from app.services import review
     {"defect_fields": [{}]}])
 def test_invalid_fields_rejected(payload):
     with pytest.raises(ValidationError):
-        ReviewActionIn(action="override_fields", payload=payload)
+        ReviewActionIn(action="override_fields", payload=payload, note="Checked the source documents")
 
 
 @pytest.mark.parametrize("payload", [{"status": "MADE_UP"}, {"status": "MISMATCH"},
     {"status": "NEEDS_REVIEW"}, {"status": "NEEDS_REVIEW", "review_reason": " "}])
 def test_invalid_status_rejected(payload):
     with pytest.raises(ValidationError):
-        ReviewActionIn(action="override_status", payload=payload)
+        ReviewActionIn(action="override_status", payload=payload, note="Checked the source documents")
+
+
+@pytest.mark.parametrize("note", ["", "   "])
+def test_review_note_is_required(note):
+    with pytest.raises(ValidationError):
+        ReviewActionIn(action="confirm", note=note)
 
 
 @pytest.mark.asyncio
@@ -44,8 +50,37 @@ async def test_review_keeps_verdict_consistent(monkeypatch, action, payload, sta
     audit = AsyncMock()
     monkeypatch.setattr(review.reviews_repo, "add", audit)
     session = SimpleNamespace(commit=AsyncMock())
-    await review.apply_action(session, row.id, ReviewActionIn(action=action, payload=payload))
+    await review.apply_action(
+        session,
+        row.id,
+        ReviewActionIn(action=action, payload=payload, reviewer="Morgan", note="Checked the source documents"),
+    )
     assert (row.status, row.defect_fields, row.has_defect, row.review_reason) == (
         status, fields, bool(fields), reason)
-    audit.assert_awaited_once()
+    audit.assert_awaited_once_with(
+        session,
+        row.id,
+        action,
+        {**(payload or {}), "note": "Checked the source documents"},
+        "Morgan",
+    )
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pending_review_cannot_be_confirmed_without_a_final_outcome(monkeypatch):
+    row = SimpleNamespace(id=uuid.uuid4(), status="NEEDS_REVIEW")
+    monkeypatch.setattr(review.results_repo, "get", AsyncMock(return_value=row))
+    audit = AsyncMock()
+    monkeypatch.setattr(review.reviews_repo, "add", audit)
+    session = SimpleNamespace(commit=AsyncMock())
+
+    with pytest.raises(review.ReviewConflict, match="final outcome"):
+        await review.apply_action(
+            session,
+            row.id,
+            ReviewActionIn(action="confirm", note="The source is still unclear"),
+        )
+
+    audit.assert_not_awaited()
+    session.commit.assert_not_awaited()
