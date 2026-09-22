@@ -353,7 +353,7 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 ├── web/
 │   ├── Dockerfile              pnpm install --frozen-lockfile + build
 │   ├── next.config.ts          standalone output; API proxy: app/api/[...path]
-│   ├── app/                    / inbox emails/[id] review runs auth/reviewer
+│   ├── app/                    / inbox emails/[id] review runs
 │   └── lib/                    api.ts typed fetch + labels.ts UI copy
 ├── scripts/gcp/                bootstrap · set-secrets · deploy · smoke ·
 │                                demo-reset · monitoring · killswitch (RM40 guard)
@@ -426,7 +426,7 @@ repo) and the web app to Vercel, then smoke-testing what it just shipped.
 | API | Cloud Run, https://sdoc-api-969206696114.asia-southeast1.run.app ([`/docs`](https://sdoc-api-969206696114.asia-southeast1.run.app/docs) for the OpenAPI UI) |
 
 ```
- browser ──► web (Vercel, public) ──/api/* server-side proxy──► sdoc-api (Cloud Run, public; writes need the reviewer passcode)
+ browser ──► web (Vercel, public) ──/api/* server-side proxy──► sdoc-api (Cloud Run, public)
                                                                   │  ├─ Neon Postgres
                                                                   │  ├─ OpenRouter (optional)
                                                                   │  ├─ gs://…-sdoc-uploads (mounted /data/uploads)
@@ -434,13 +434,9 @@ repo) and the web app to Vercel, then smoke-testing what it just shipped.
                                                                   │  └─ sdoc-worker (Cloud Run Job, one execution per full run)
 ```
 
-Reads (dashboard, inbox, review queue, runs) are open to anyone with the
-link, on purpose, so judges can browse with no login. Writes — starting a
-run, confirming a review, live intake, reprocessing — require unlocking
-reviewer mode with a passcode (`X-Demo-Passcode` header, checked in
-`api/app/api/deps.py::require_reviewer`); the web UI does this through
-`web/app/auth/reviewer/route.ts`, which sets a 12-hour HttpOnly cookie after
-the API confirms the passcode.
+All routes are open to anyone with the link, so judges can browse and operate
+the demo without a login. Run volume is still bounded by the API's active-run
+and rolling daily limits.
 
 Spend is bounded two ways: `sdoc-api` runs with `--max-instances 1` (so its
 in-process run guards — at most one active run, at most 20 started per
@@ -450,8 +446,8 @@ passes a selected MYR cutoff (currently **RM40**; see
 `docs/cost-guard-status.md`). That guard cannot bound Vercel, Neon or
 OpenRouter spend, which are separate, independent billing relationships.
 
-Full setup, day-to-day operations (unlocking reviewer mode, what a 409/429
-run refusal means, resetting the demo, retrying a failed email, finding
+Full setup, day-to-day operations (what a 409/429 run refusal means,
+resetting the demo, retrying a failed email, finding
 logs for one run, recovering from the billing guard), rollback and teardown
 are in [`docs/deploy.md`](docs/deploy.md).
 

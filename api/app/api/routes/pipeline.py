@@ -17,12 +17,12 @@ from ...repositories import results as results_repo  # noqa: E402
 from ...repositories import runs as runs_repo  # noqa: E402
 from ...schemas.runs import RunDetail, RunStarted, RunView  # noqa: E402
 from ...services import executor  # noqa: E402
-from ..deps import get_db, require_reviewer  # noqa: E402
+from ..deps import get_db  # noqa: E402
 
 router = APIRouter()
 
 
-@router.post("/pipeline/run", response_model=RunStarted, dependencies=[Depends(require_reviewer)])
+@router.post("/pipeline/run", response_model=RunStarted)
 async def start_run(
     background: BackgroundTasks,
     email_ids: list[str] | None = None,
@@ -70,7 +70,7 @@ async def export_submission(run_id: str):
     return JSONResponse(sub)
 
 
-@router.post("/export/submit", dependencies=[Depends(require_reviewer)])
+@router.post("/export/submit")
 async def submit_run(run_id: str):
     try:
         return await submit(run_id)
@@ -78,7 +78,7 @@ async def submit_run(run_id: str):
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/pipeline/llm-assist/{email_id}", dependencies=[Depends(require_reviewer)])
+@router.post("/pipeline/llm-assist/{email_id}")
 async def llm_assist_email(email_id: str, s: AsyncSession = Depends(get_db)):
     """On-demand AI view of an email (classification + extraction/OCR).
     Demo endpoint — results are returned, never persisted."""

@@ -20,9 +20,8 @@ Run Job. Vercel hosts the web app and proxies `/api/*`, so the browser never
 calls the API directly. Budget guard hard-stops at RM40/month.
 
 ## Rules
-A reviewer passcode gates every write (`require_reviewer`); a route-table test
-fails any unguarded one. Intake caps: 4 files, 3 MiB each and total. Never
-commit credentials.
+All routes are publicly accessible. Intake caps: 4 files, 3 MiB each and
+total. Never commit credentials.
 
 ## Commands
 - `uv run ruff check api scripts/gcp/killswitch`

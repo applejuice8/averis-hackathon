@@ -113,8 +113,3 @@ def test_create_email_still_allows_subject_only_with_no_attachments(api):
     r = api.client.post("/api/emails", data={"subject": "REQUEST BL DRAFT"})
     assert r.status_code == 201, r.text
     assert api.upsert.await_args.args[1][0]["attachments"] == []
-
-
-def test_create_email_needs_the_passcode(api, monkeypatch):
-    monkeypatch.setattr(settings, "demo_passcode", "harbour-42")
-    assert api.client.post("/api/emails", data=FORM).status_code == 401

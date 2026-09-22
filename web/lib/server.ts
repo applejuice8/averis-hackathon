@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 
 export const DATA_LOADED_COOKIE = "sdoc_data_loaded";
-export const REVIEWER_COOKIE = "sdoc_reviewer";
 // Below Vercel's 4.5 MB request/response ceiling, including multipart overhead.
 export const MAX_PROXY_BYTES = 4_000_000;
 
@@ -56,20 +55,6 @@ export async function boundedBody(stream: ReadableStream<Uint8Array> | null, lim
   let offset = 0;
   for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
   return body.buffer;
-}
-
-/** Whether this caller may write: mirrors the API's `require_reviewer` gate. 204 = allowed, anything else = locked. */
-export async function reviewerUnlocked(passcode: string | undefined): Promise<boolean> {
-  try {
-    const r = await fetch(`${apiBase()}/api/auth/check`, {
-      headers: passcode ? { "x-demo-passcode": passcode } : {},
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
-    });
-    return r.status === 204;
-  } catch {
-    return false;
-  }
 }
 
 export function gatewayError(error: unknown): Response {

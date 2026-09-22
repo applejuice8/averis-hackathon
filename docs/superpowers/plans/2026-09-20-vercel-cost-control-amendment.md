@@ -64,11 +64,10 @@ option is separate from simply setting an alert amount.
 - `web/vercel.json`: native Next.js build in `sin1`.
 - `web/next.config.ts`: runtime proxy replaces build-time rewrite. Standalone output
   is optional via `WEB_STANDALONE=1` for Docker, not the Vercel deployment mechanism.
-- `web/app/api/[...path]/route.ts`: same-origin writes, reviewer-cookie forwarding,
-  bounded request/response bodies, explicit timeout and gateway errors.
-- `web/app/auth/reviewer/route.ts`: validate against the API, set a 12-hour HttpOnly
-  same-site cookie, and clear it on lock. Task 11 still needs the sidebar UI and
-  disabled/locked states. A shared passcode is demo access control, not user accounts.
+- `web/app/api/[...path]/route.ts`: same-origin writes, bounded request/response
+  bodies, explicit timeout and gateway errors.
+- All application actions are public; there is no reviewer unlock flow or
+  shared passcode.
 - `/healthz` calls neither API nor database; `robots.txt` discourages indexing.
 - `scripts/gcp/killswitch/`: notification validation, dry-run-first handler,
   idempotent project billing disconnect, and failure retries.

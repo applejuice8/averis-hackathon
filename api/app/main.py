@@ -62,7 +62,6 @@ async def health(response: Response):
     data_dir = settings.resolved_data_dir
     payload = {
         "status": "ok" if database["ok"] else "degraded",
-        "writes_protected": bool(settings.demo_passcode),
         "run_executor": settings.run_executor,
         "database": database,
         "llm": {
