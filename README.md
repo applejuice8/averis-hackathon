@@ -66,7 +66,7 @@ Without Docker: `uv sync` · `cd web && pnpm install` ·
 `uv run uvicorn app.main:app --app-dir api --reload` · `cd web && pnpm dev`.
 
 Scoring a run against the provided scorer, retraining the spam model and the
-Gmail import are covered in [§9](#9-run-it) and [§11](#11-gmail-integration-optional-inbox-source-local-only).
+Gmail import are covered in [§9](#9-run-it) and [§11](#11-gmail-integration-optional-inbox-source).
 
 ---
 
@@ -85,7 +85,7 @@ flowchart LR
     Model[("Spam model<br/>spam.joblib")]
     Scorer["Provided scorer<br/>IAM-private · ground truth"]
     OpenRouter["OpenRouter<br/>optional text + vision assists"]
-    Gmail["Gmail API<br/>optional local ingest"]
+    Gmail["Gmail API<br/>optional inbox source"]
 
     Browser -->|same-origin only| Web
     Web -->|server-side /api/* proxy| API
@@ -99,7 +99,7 @@ flowchart LR
     Pipeline --> Model
     Pipeline -->|score submissions| Scorer
     Pipeline -.->|optional assists| OpenRouter
-    API -.->|local only| Gmail
+    API -.->|read-only sync| Gmail
 ```
 
 | Service | Image base | Port | Purpose |
@@ -304,7 +304,7 @@ Latest-result joins power every screen; old runs are kept for the scoreboard
 and audit trail. `decided_by` records `rule`, `ml` (spam model) or `llm`.
 Human reviews write `reviews` rows (`confirm`, `override_status`,
 `override_fields`) and can update a result's status or defect fields without
-re-running the pipeline. Gmail accounts are local-only ingest configuration;
+re-running the pipeline. Gmail accounts store OAuth ingest credentials;
 the provided bundle remains read-only.
 
 ---
@@ -491,15 +491,7 @@ are in [`docs/deploy.md`](docs/deploy.md).
 
 ---
 
-## 11. Gmail integration (optional inbox source, local only)
-
-> **Not part of the cloud deploy.** `scripts/gcp/deploy.sh` deliberately
-> does not set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
-> `GOOGLE_REDIRECT_URI` on the deployed API. These settings are optional in
-> `api/app/core/config.py` and the feature degrades cleanly when unset, so
-> this is safe — it just means Gmail import only works when you run the
-> stack yourself, as described below. Wiring it into the cloud deploy would
-> be a separate, deliberate change.
+## 11. Gmail integration (optional inbox source)
 
 Pull live shipping mail straight from Gmail instead of the static bundle.
 Gmail is just another ingest source: messages land in the same `emails`
@@ -678,11 +670,12 @@ reviewers overrule most, which synonyms the parser keeps missing, which
 escalation reasons are noise. That is the cheapest path from *tool* to
 *system that improves*.
 
-**Then — meet the mail where it lives.** Gmail OAuth works locally today and
-is deliberately not wired into the cloud deploy. Making it production-real
-means encrypted refresh tokens, a registered production redirect URI, and
-IMAP / Microsoft Graph alongside it, so the product attaches to an existing
-shipping-ops mailbox instead of asking anyone to change how they work.
+**Then — meet the mail where it lives.** Gmail OAuth ingestion already works
+end to end — connect an account, preview, sync, and the pipeline treats it
+like any other email. Extending it means encrypted refresh tokens at rest and
+IMAP / Microsoft Graph connectors alongside, so the product attaches to an
+existing shipping-ops mailbox instead of asking anyone to change how they
+work.
 
 **Beyond SI vs BL.** The comparison engine is document-pair agnostic — the
 7-field contract and the synonym map are configuration, not logic. Packing

@@ -243,7 +243,7 @@ Scored by the organizers' **own scorer service against private ground truth** �
 
 ## 12. Future roadmap
 
-- **Inbox connectors in production** — Gmail import already works locally (read-only scope, OAuth consent); wire it into the cloud deploy, then Outlook/Exchange.
+- **Inbox connectors** — Gmail import is already working end to end (read-only scope, OAuth consent, preview-and-select sync); extend the same pattern to Outlook/Exchange.
 - **More document types** — packing lists, certificates of origin, commercial invoices; the reader/plugin architecture already supports adding formats.
 - **Learning from reviews** — reviewer overrides are structured data; use them to tune extraction thresholds and the spam classifier.
 - **Downstream integration** — emit verdicts to TMS/ERP systems and carrier portals; the audit-ready `pipeline_results` schema is already shaped for it.
