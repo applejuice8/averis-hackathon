@@ -15,10 +15,10 @@ untrustworthy documents to human review.
 | API | <https://sdoc-api-969206696114.asia-southeast1.run.app/docs> |
 | Source | <https://github.com/applejuice8/secret-hack> |
 
-Browsing the live demo needs no login — the inbox, document comparisons,
-review queue and run history are all open. Making changes (starting a run,
-confirming a review, uploading an email) needs the reviewer passcode supplied
-with our submission.
+The live demo is fully public: browsing, mock-data controls, pipeline runs,
+document uploads, AI assist and human-review decisions all work without a
+login. Same-origin, request-size, run-volume and spend guards are described in
+[§10](#10-cloud-deployment-google-cloud-run--vercel).
 
 ---
 
@@ -45,15 +45,17 @@ docker compose exec api uv run python -m pipeline.ingest   # 520 emails → Post
 docker compose exec api uv run python -m pipeline.run      # classify, read, compare
 ```
 
-Then open <http://localhost:3000>. The API is on
+Then open <http://localhost:3000> and choose **Load mock data** (or connect
+and sync Gmail) to reveal the loaded workspace. The API is on
 <http://localhost:8000> (`/docs` for the OpenAPI UI) and the provided scorer
-on <http://localhost:8080>.
+on <http://localhost:8080>. **Clear mock data** only clears the browser's
+session view; it does not delete Postgres records.
 
 **Check it came up.** `curl localhost:8000/health` reports the database
 round-trip, the configured models and which assists are enabled — it returns
 503 rather than lying if Postgres is unreachable.
 
-**Run the tests.** 222 of them, needing no database and no network:
+**Run the tests.** 211 collected tests, needing no database and no network:
 
 ```bash
 uv sync
@@ -70,65 +72,142 @@ Gmail import are covered in [§9](#9-run-it) and [§11](#11-gmail-integration-op
 
 ## 1. System architecture
 
-```
-                            docker compose network
- ┌───────────────────────────────────────────────────────────────────────┐
- │                                                                       │
- │  browser                                                              │
- │    │  http://localhost:3000                                           │
- │    ▼                                                                  │
- │ ┌─────────────┐   server-side fetch (compose DNS)                     │
- │ │     web     │ ────────────────────────────┐                         │
- │ │  Next.js 15 │                             ▼                         │
- │ │  pnpm       │   /api/* rewritten   ┌─────────────┐                  │
- │ └──────┬──────┘   to API_URL         │     api     │                  │
- │        │                             │  FastAPI    │                  │
- │        └────────────────────────────►│  uv / py3.13│                  │
- │             same origin, any host    │  :8000      │                  │
- │                                      └──────┬──────┘                  │
- │                                             │                         │
- └─────────────────────────────────────────────┼─────────────────────────┘
-                                               │
-            ┌───────────────────────────┬──────┴───────────────────┐
-            ▼                           ▼                          ▼
-    ┌─────────────────┐   TLS    ┌──────────────┐   HTTPS   ┌──────────────┐
-    │     scorer      │          │  Neon        │           │  OpenRouter  │
-    │ provided eval   │          │  Postgres    │           │  nemotron    │
-    │ server :8000    │          │  (managed)   │           │  models      │
-    │ (dev only)      │          └──────────────┘           └──────────────┘
-    └─────────────────┘
-     api reaches it as
-     http://scorer:8000
+```mermaid
+flowchart TB
+    subgraph Client["User / judge browser"]
+        Browser["DockerOps UI<br/>public demo — no login"]
+    end
+
+    subgraph Web["Next.js 15 web app (Vercel / :3000)"]
+        Pages["App Router pages<br/>Overview · Inbox · Email detail · Spam<br/>Calendar · Human review · Runs"]
+        Mock["POST/DELETE /api/mock-data<br/>sets or expires sdoc_data_loaded"]
+        Proxy["/api/[...path] route handler<br/>same-origin writes · path validation<br/>≤4 MB request/response · 110 s timeout"]
+        ServerFetch["server-side data fetch<br/>API_URL · no-store · 30 s timeout"]
+        Pages -->|server rendering| ServerFetch
+        Pages -->|browser calls same-origin /api/*| Proxy
+        Pages --> Mock
+    end
+
+    Browser --> Pages
+    ServerFetch -->|GET /api/*| Router
+    Proxy -->|validated request → API_URL/api/*| Router
+
+    subgraph API["FastAPI service (Cloud Run / :8000)"]
+        Router["/api router"]
+        EmailAPI["emails + attachment preview<br/>manual email + reprocess"]
+        IntakeAPI["intake<br/>≤4 files · ≤3 MiB each/total<br/>sniffed txt/pdf/docx/xlsx"]
+        PipelineAPI["pipeline + runs<br/>active-run and daily-run guards"]
+        ReviewAPI["review<br/>confirm · override status · override fields"]
+        CalendarAPI["calendar feed"]
+        GmailAPI["Gmail OAuth · preview · sync"]
+        SpamAPI["spam detect + model details"]
+        Health["GET /livez · GET /health"]
+        Router --> EmailAPI
+        Router --> IntakeAPI
+        Router --> PipelineAPI
+        Router --> ReviewAPI
+        Router --> CalendarAPI
+        Router --> GmailAPI
+        Router --> SpamAPI
+    end
+
+    subgraph Processing["Pipeline package"]
+        Ingest["ingest<br/>bundle → emails"]
+        Orchestrator["process_email<br/>one verdict per email"]
+        Classify["classify<br/>spam model → rules → optional LLM"]
+        Readers["readers<br/>txt/pdf/docx/xlsx + optional OCR"]
+        Extract["extract<br/>document type + 7 canonical fields"]
+        Compare["compare<br/>normalised deterministic verdict"]
+        Submission["submission builder<br/>email_id-keyed JSON"]
+        Ingest --> Orchestrator --> Classify --> Readers --> Extract --> Compare --> Submission
+    end
+
+    PipelineAPI -->|inline locally| Orchestrator
+    PipelineAPI -->|RUN_EXECUTOR=cloudrun-job| Worker["sdoc-worker<br/>Cloud Run Job"]
+    PipelineAPI -->|export/submit| Submission
+    Worker --> Orchestrator
+    EmailAPI --> Orchestrator
+    IntakeAPI --> Orchestrator
+
+    subgraph Data["Persistence and files"]
+        DB[(Neon Postgres<br/>emails · runs · pipeline_results<br/>reviews · gmail_accounts)]
+        Results[(pipeline_results<br/>latest verdict + evidence)]
+        BundleFiles[("provided bundle<br/>read-only inbox + attachments")]
+        UploadFiles[("uploads<br/>compose volume / GCS bucket")]
+        GmailFiles[("gmail-data<br/>ingested Gmail attachments")]
+        SpamModel[("spam.joblib<br/>TF-IDF + LogisticRegression")]
+    end
+
+    Ingest --> DB
+    Orchestrator -->|write result| Results
+    ReviewAPI -->|confirm or correct| Results
+    DB -->|table| Results
+    EmailAPI --> DB
+    PipelineAPI --> DB
+    ReviewAPI --> DB
+    GmailAPI --> DB
+    Submission -->|save scoreboard| DB
+    Orchestrator --> BundleFiles
+    EmailAPI --> UploadFiles
+    IntakeAPI --> UploadFiles
+    GmailAPI --> GmailFiles
+    Classify --> SpamModel
+
+    Scorer["provided scorer<br/>POST /submit<br/>private ground truth"]
+    Submission -->|score run| Scorer
+    Scorer -->|stage + final score| Submission
+
+    subgraph External["External services"]
+        Gmail["Gmail API<br/>gmail.readonly OAuth"]
+        OpenRouter["OpenRouter<br/>configurable text/vision model chains"]
+    end
+    GmailAPI --> Gmail
+    Classify -->|optional classify fallback| OpenRouter
+    Readers -->|optional scanned-PDF OCR| OpenRouter
+    Extract -->|optional missing-field fill| OpenRouter
+
+    subgraph Ops["Delivery + safeguards"]
+        CI["GitHub Actions<br/>ruff · pytest · tsc · build · image smoke"]
+        Deploy["deploy workflow<br/>Cloud Run + Vercel jobs"]
+        Budget["billing kill switch<br/>RM40/month"]
+        CI --> Deploy
+        Deploy --> Router
+        Deploy --> Pages
+        Budget -.->|disconnect billing on threshold| Router
+    end
 ```
 
 | Service | Image base | Port | Purpose |
 |---|---|---|---|
-| `web` | node:22-alpine + corepack pnpm | 3000 | Dashboard, inbox, diff view, review queue, intake, runs. Locally: build-time rewrite. In the cloud: Vercel, with `web/app/api/[...path]/route.ts` proxying `/api/*` to the API at request time so the browser never calls it cross-origin |
-| `api` | astral-sh/uv python3.13 | 8000 | Pipeline, REST API, Neon access. Same image also runs the worker job in the cloud (`python -m pipeline.worker`) |
-| `scorer` | python:3.12-slim (provided) | 8080→8000 | Evaluation against private ground truth. Locally reachable at `http://scorer:8000`; in the cloud it's an IAM-private Cloud Run service only `sdoc-api`'s service account may invoke |
-| Neon | managed | — | `emails`, `runs`, `pipeline_results`, `reviews` |
-| OpenRouter | managed | — | text model + vision model |
+| `web` | node:22-alpine + corepack pnpm | 3000 | Dashboard, inbox, email detail, spam, calendar, human review, runs and intake. Server-rendered reads use `API_URL`; browser requests use the same-origin `/api/[...path]` proxy |
+| `api` | astral-sh/uv python3.13 | 8000 | Pipeline, REST API, Neon access. The same image also runs `python -m pipeline.worker` as the Cloud Run Job |
+| `scorer` | python:3.12-slim (provided) | 8080→8000 | Evaluation against private ground truth. Locally reachable at `http://scorer:8000`; in the cloud it is an IAM-private Cloud Run service only `sdoc-api`'s service account may invoke |
+| Neon | managed | — | `emails`, `runs`, `pipeline_results`, `reviews`, `gmail_accounts` |
+| OpenRouter | managed | — | optional text-model and vision-model assists with fallback chains |
 
 In the cloud, `web` deploys to Vercel and `api`/`scorer` deploy to Cloud Run,
 plus a Cloud Run Job (`sdoc-worker`, same `api` image) for full pipeline runs
 so they don't run inside a request. See section 10.
 
-The browser only ever talks to its own origin: Next rewrites `/api/*` to
-`API_URL`, so the UI works unchanged on localhost, in compose, or behind a
-deployed hostname.
+The browser only ever talks to its own origin. Server-rendered reads call
+`API_URL` directly inside Next.js, while browser/client requests go through
+`web/app/api/[...path]/route.ts`. That proxy validates same-origin writes,
+rejects unsafe path segments, bounds request/response bodies, forwards to
+`API_URL`, and returns bounded `no-store` responses.
 
 `GET /health` reports what the service can actually reach — the Neon
 round-trip, the configured model chain, which assists are switched on, and
 whether the data directory is mounted. It answers 503 when the database is
 down, and never calls a model.
 
-The compose `api` service mounts `docs-provided/.../sdoc-hackathon-bundle`
-read-only at `/data` (inbox JSON + attachments) and reads secrets from
-`.env` (`NEON_DB_URI`, `OPENROUTER_API_KEY`).
+The `api` image bakes `docs-provided/.../sdoc-hackathon-bundle` into `/data`
+(inbox JSON + attachments). Compose adds writable `uploads` and `gmail-data`
+volumes, while `.env` supplies `NEON_DB_URI` and the optional
+`OPENROUTER_API_KEY`.
 
 ---
 
-## 2. Pipeline — "LLMs read, code decides"
+## 2. Pipeline — "models read, code decides"
 
 ```
  inbox/*.json                 attachments/*
@@ -178,10 +257,10 @@ read-only at `/data` (inbox JSON + attachments) and reads secrets from
                             submission JSON → scorer
 ```
 
-**The AI/code boundary:** models only do *perception* — classification
-fallback, extraction fallback, vision OCR. Comparison, normalization,
-verdicts, and escalation are pure Python, because the score needs exact
-defect-field sets, not vibes.
+**The AI/code boundary:** models only do *perception* — spam probability,
+optional classification fallback, optional field extraction and optional
+vision OCR. Comparison, normalization, verdicts, and escalation are pure
+Python, because the score needs exact defect-field sets, not vibes.
 
 ---
 
@@ -259,9 +338,18 @@ difference *is* a defect — formatting noise is not.
                                    → FINAL = .30·F1 + .20·defF1 + .50·e2e
 ```
 
-Current score on the provided dataset: **final 1.0** — classification
-macro-F1 1.0, defect F1 1.0, end-to-end 46/46, escalation precision and
-recall 1.0 (20/20 review cases, all 4 reasons caught).
+Current score on the provided dataset, as reported by the provided scorer:
+
+| Scoring axis | Weight | Result |
+|---|---:|---:|
+| End-to-end — defects caught all the way through | 50% | **46/46** |
+| Stage-1 classification macro-F1 (5 categories) | 30% | **1.00** |
+| Stage-3 defect F1 | 20% | **1.00** |
+| **Final score** | **100%** | **1.00** |
+| Escalation precision / recall *(separate reliability axis)* | — | **1.00 / 1.00** — 20/20 review cases, all 4 reasons |
+
+This is a benchmark on synthetic supplied data, not a claim about unseen
+production mail.
 
 ---
 
@@ -287,9 +375,12 @@ recall 1.0 (20/20 review cases, all 4 reasons caught).
                                         └─ created_at
 ```
 
-Latest-run joins power every screen; old runs are kept for the scoreboard
-and audit trail. Human reviews write `reviews` rows and can override a
-result's status/defect fields without re-running the pipeline.
+Latest-result joins power every screen; old runs are kept for the scoreboard
+and audit trail. `decided_by` records `rule`, `ml` (spam model) or `llm`.
+Human reviews write `reviews` rows (`confirm`, `override_status`,
+`override_fields`) and can update a result's status or defect fields without
+re-running the pipeline. Gmail accounts are local-only ingest configuration;
+the provided bundle remains read-only.
 
 ---
 
@@ -321,11 +412,12 @@ Two more things the free tier forced on us:
 
 The client is built on first use, so the deterministic pipeline runs with no
 `OPENROUTER_API_KEY` at all — pull the key mid-demo and verdicts keep
-coming, which is the point of "LLMs read, code decides".
+coming, which is the point of "models read, code decides".
 
-**Demo without flags:** `GET /api/pipeline/llm-assist/{email_id}` runs the
+**Demo without flags:** `POST /api/pipeline/llm-assist/{email_id}` runs the
 models live on one email (classification + extraction + OCR) and returns
-what the AI saw — the web UI exposes it as the "Run AI assist" panel.
+what the AI saw — the web UI exposes it as the "Run AI assist" panel. The
+result is diagnostic only and is never persisted as the verdict.
 
 ---
 
@@ -348,13 +440,14 @@ what the AI saw — the web UI exposes it as the "Run AI assist" panel.
 │   ├── pipeline/               ingest → classify → readers → extract
 │   │   └── readers/            → escalate → compare → submit
 │   │       └── ocr.py          vision-model path (pypdfium2 render)
-│   └── tests/                  64 tests — golden, anti-overfit, LLM client,
-│                               health, review; no DB, no network
+│   └── tests/                  211 collected tests — golden, anti-overfit,
+│                               LLM client, health, review; no DB, no network
 ├── web/
 │   ├── Dockerfile              pnpm install --frozen-lockfile + build
 │   ├── next.config.ts          standalone output; API proxy: app/api/[...path]
-│   ├── app/                    / inbox emails/[id] review runs
-│   └── lib/                    api.ts typed fetch + labels.ts UI copy
+│   ├── app/                    / inbox emails/[id] spam calendar review runs
+│   │   └── api/                mock-data session + same-origin proxy routes
+│   └── lib/                    api.ts/server.ts fetches + labels.ts UI copy
 ├── scripts/gcp/                bootstrap · set-secrets · deploy · smoke ·
 │                                demo-reset · monitoring · killswitch (RM40 guard)
 ├── docs/deploy.md              Cloud Run + Vercel runbook
@@ -425,18 +518,65 @@ repo) and the web app to Vercel, then smoke-testing what it just shipped.
 | Web | Vercel, https://dockerops.vercel.app |
 | API | Cloud Run, https://sdoc-api-969206696114.asia-southeast1.run.app ([`/docs`](https://sdoc-api-969206696114.asia-southeast1.run.app/docs) for the OpenAPI UI) |
 
-```
- browser ──► web (Vercel, public) ──/api/* server-side proxy──► sdoc-api (Cloud Run, public)
-                                                                  │  ├─ Neon Postgres
-                                                                  │  ├─ OpenRouter (optional)
-                                                                  │  ├─ gs://…-sdoc-uploads (mounted /data/uploads)
-                                                                  │  ├─ sdoc-scorer (Cloud Run, IAM-private)
-                                                                  │  └─ sdoc-worker (Cloud Run Job, one execution per full run)
+```mermaid
+flowchart LR
+    subgraph Repo["GitHub delivery"]
+        Main["push to main"]
+        CI["CI workflow<br/>ruff · pytest · tsc · build · image smoke"]
+        WIF["Workload Identity Federation<br/>no service-account key"]
+        CloudDeploy["Cloud Run deploy<br/>scorer → worker → API"]
+        WebDeploy["Vercel CLI deploy<br/>when secrets are configured"]
+        Main --> CI --> CloudDeploy
+        Main --> CI --> WebDeploy
+        WIF --> CloudDeploy
+    end
+
+    subgraph Edge["Public edge"]
+        Browser["Judge / operator browser"]
+        Web["Vercel · dockerops.vercel.app<br/>Next.js public app"]
+        Proxy["/api/[...path]<br/>same-origin proxy"]
+        Browser --> Web --> Proxy
+    end
+
+    subgraph GCP["Google Cloud · averis-email-system · asia-southeast1"]
+        AR["Artifact Registry<br/>sdoc images"]
+        API["Cloud Run · sdoc-api<br/>public HTTPS · max-instances 1"]
+        Worker["Cloud Run Job · sdoc-worker<br/>one execution per full run"]
+        Scorer["Cloud Run · sdoc-scorer<br/>IAM-private ground-truth scorer"]
+        Bucket["GCS bucket<br/>/data/uploads · 30-day lifecycle"]
+        Secrets["Secret Manager<br/>NEON_DB_URI · OPENROUTER_API_KEY · GROUND_TRUTH"]
+        Budget["Budget alert → Pub/Sub → Cloud Function<br/>disconnect billing at RM40/month"]
+        Billing["Project billing account"]
+    end
+
+    subgraph Managed["Managed data + model services"]
+        Neon["Neon Postgres"]
+        OpenRouter["OpenRouter<br/>optional assists"]
+    end
+
+    CloudDeploy --> AR
+    AR --> API
+    AR --> Worker
+    AR --> Scorer
+    WebDeploy --> Web
+
+    Proxy -->|HTTPS /api/*| API
+    API -->|async SQL| Neon
+    API -->|optional model calls| OpenRouter
+    API -->|Cloud Storage FUSE| Bucket
+    API -->|OIDC ID token| Scorer
+    API -->|Run Jobs API| Worker
+    Worker -->|ingest · process · score| Neon
+    Worker -->|uploaded files| Bucket
+    Worker -->|OIDC ID token| Scorer
+    API --> Secrets
+    Worker --> Secrets
+    Scorer --> Secrets
+    Budget -.->|billing API only after threshold| Billing
 ```
 
 All routes are open to anyone with the link, so judges can browse and operate
-the demo without a login. Run volume is still bounded by the API's active-run
-and rolling daily limits.
+the demo without a login.
 
 Spend is bounded two ways: `sdoc-api` runs with `--max-instances 1` (so its
 in-process run guards — at most one active run, at most 20 started per
@@ -470,8 +610,36 @@ of the pipeline runs unchanged. Read-only scope — the mailbox is never
 modified. Emails are namespaced `gmail_<messageId>` so they never clash
 with the `email_###` bundle fixtures.
 
-**Flow:** Inbox → **Import from Gmail** → Google consent → **Sync Gmail** →
-new `gmail_*` rows appear → **Run inbox checks** as usual.
+**Flow:** Inbox → **Import from Gmail** → Google consent → choose a preview
+window → **Sync Gmail** → select messages → **Import selected** → new
+`gmail_*` rows appear → **Run inbox checks** as usual.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Web as DockerOps inbox
+    participant API as FastAPI
+    participant Google as Gmail API
+    participant Files as gmail-data volume
+    participant DB as Neon Postgres
+
+    User->>Web: Import from Gmail
+    Web->>API: GET /api/auth/google/start
+    API->>Google: OAuth consent (gmail.readonly)
+    Google-->>API: callback authorization code
+    API->>DB: Upsert account + refresh token
+    User->>Web: Sync Gmail (1-30 day window)
+    Web->>API: GET /api/gmail/preview?days=N
+    API->>Google: List message metadata only
+    Google-->>API: candidates
+    API-->>Web: Preview modal
+    User->>Web: Select messages, then Import selected
+    Web->>API: POST /api/gmail/sync with message_ids
+    API->>Google: Fetch only selected messages + attachments
+    API->>Files: Write attachment bytes
+    API->>DB: Upsert gmail_* records
+    API-->>Web: synced count and data-loaded cookie
+```
 
 ### Google Cloud setup
 
@@ -509,19 +677,21 @@ docker compose up --build
 docker compose exec api uv run python -m pipeline.run   # then process them
 ```
 
-Or sync from the API directly:
+Or preview/import from the API directly:
 
 ```bash
-curl -X POST 'http://localhost:8000/api/gmail/sync'
-# optional Gmail search filter:
-curl -X POST 'http://localhost:8000/api/gmail/sync?query=has:attachment+newer_than:7d'
+curl 'http://localhost:8000/api/gmail/preview?days=7'
+curl -X POST 'http://localhost:8000/api/gmail/sync' \
+  -H 'Content-Type: application/json' \
+  -d '{"message_ids":["<gmail-message-id>"]}'
 ```
 
 Endpoints: `GET /api/auth/google/start` · `GET /api/auth/google/callback` ·
-`POST /api/gmail/sync` · `GET /api/gmail/accounts` ·
-`DELETE /api/gmail/accounts/{id}`. Default sync query is
-`has:attachment newer_than:30d`; re-syncing is idempotent (upsert on
-`email_id`). The connected account + last-synced time show on the Inbox.
+`GET /api/gmail/preview?days=N` · `POST /api/gmail/sync` ·
+`GET /api/gmail/accounts` · `DELETE /api/gmail/accounts/{id}`. Preview uses
+`newer_than:Nd` metadata and writes nothing; sync imports only selected
+message IDs, so it is idempotent by `gmail_<messageId>` upsert. The connected
+account + last-synced time show on the Inbox.
 
 > Redirect URI must match byte-for-byte. For a deployment, add the
 > production `https://…/api/auth/google/callback` URI and set
@@ -627,11 +797,11 @@ Grading it — low-OCR-confidence differs from a hard parse failure — lets
 reviewers triage by risk rather than by queue position, and gives per-field
 extraction provenance somewhere to live in the UI.
 
-**Hardening for anything past a demo.** Named reviewer identities and SSO in
-place of a shared passcode; Alembic migrations instead of `create_all` on
-startup; rate limiting and request logging; per-run LLM cost and quota
-telemetry; drift monitoring and periodic re-evaluation of the spam model
-against independently labelled mail before anyone relies on it.
+**Hardening for anything past a demo.** Named reviewer identities and SSO
+for accountable access; Alembic migrations instead of `create_all` on
+startup; broader rate limiting and request logging; per-run LLM cost and
+quota telemetry; drift monitoring and periodic re-evaluation of the spam
+model against independently labelled mail before anyone relies on it.
 
 **And the boring one that pays off immediately:** authorise the Vercel
 GitHub app on this repository and pull requests get preview deployments, so
