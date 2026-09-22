@@ -73,108 +73,33 @@ Gmail import are covered in [§9](#9-run-it) and [§11](#11-gmail-integration-op
 ## 1. System architecture
 
 ```mermaid
-flowchart TB
-    subgraph Client["User / judge browser"]
-        Browser["DockerOps UI<br/>public demo — no login"]
-    end
+flowchart LR
+    Browser["Operator / judge browser"]
+    Web["Web app<br/>Next.js · Vercel / :3000"]
+    API["API<br/>FastAPI · Cloud Run / :8000"]
+    Worker["Worker<br/>Cloud Run Job · same api image"]
+    Pipeline["Pipeline<br/>ingest → classify → read<br/>→ extract → compare → submit"]
 
-    subgraph Web["Next.js 15 web app (Vercel / :3000)"]
-        Pages["App Router pages<br/>Overview · Inbox · Email detail · Spam<br/>Calendar · Human review · Runs"]
-        Mock["POST/DELETE /api/mock-data<br/>sets or expires sdoc_data_loaded"]
-        Proxy["/api/[...path] route handler<br/>same-origin writes · path validation<br/>≤4 MB request/response · 110 s timeout"]
-        ServerFetch["server-side data fetch<br/>API_URL · no-store · 30 s timeout"]
-        Pages -->|server rendering| ServerFetch
-        Pages -->|browser calls same-origin /api/*| Proxy
-        Pages --> Mock
-    end
+    DB[(Neon Postgres<br/>emails · runs · results · reviews)]
+    Files[("Document files<br/>bundle · uploads · gmail-data")]
+    Model[("Spam model<br/>spam.joblib")]
+    Scorer["Provided scorer<br/>IAM-private · ground truth"]
+    OpenRouter["OpenRouter<br/>optional text + vision assists"]
+    Gmail["Gmail API<br/>optional local ingest"]
 
-    Browser --> Pages
-    ServerFetch -->|GET /api/*| Router
-    Proxy -->|validated request → API_URL/api/*| Router
+    Browser -->|same-origin only| Web
+    Web -->|server-side /api/* proxy| API
+    API --> Pipeline
+    API -->|full runs| Worker
+    Worker --> Pipeline
 
-    subgraph API["FastAPI service (Cloud Run / :8000)"]
-        Router["/api router"]
-        EmailAPI["emails + attachment preview<br/>manual email + reprocess"]
-        IntakeAPI["intake<br/>≤4 files · ≤3 MiB each/total<br/>sniffed txt/pdf/docx/xlsx"]
-        PipelineAPI["pipeline + runs<br/>active-run and daily-run guards"]
-        ReviewAPI["review<br/>confirm · override status · override fields"]
-        CalendarAPI["calendar feed"]
-        GmailAPI["Gmail OAuth · preview · sync"]
-        SpamAPI["spam detect + model details"]
-        Health["GET /livez · GET /health"]
-        Router --> EmailAPI
-        Router --> IntakeAPI
-        Router --> PipelineAPI
-        Router --> ReviewAPI
-        Router --> CalendarAPI
-        Router --> GmailAPI
-        Router --> SpamAPI
-    end
-
-    subgraph Processing["Pipeline package"]
-        Ingest["ingest<br/>bundle → emails"]
-        Orchestrator["process_email<br/>one verdict per email"]
-        Classify["classify<br/>spam model → rules → optional LLM"]
-        Readers["readers<br/>txt/pdf/docx/xlsx + optional OCR"]
-        Extract["extract<br/>document type + 7 canonical fields"]
-        Compare["compare<br/>normalised deterministic verdict"]
-        Submission["submission builder<br/>email_id-keyed JSON"]
-        Ingest --> Orchestrator --> Classify --> Readers --> Extract --> Compare --> Submission
-    end
-
-    PipelineAPI -->|inline locally| Orchestrator
-    PipelineAPI -->|RUN_EXECUTOR=cloudrun-job| Worker["sdoc-worker<br/>Cloud Run Job"]
-    PipelineAPI -->|export/submit| Submission
-    Worker --> Orchestrator
-    EmailAPI --> Orchestrator
-    IntakeAPI --> Orchestrator
-
-    subgraph Data["Persistence and files"]
-        DB[(Neon Postgres<br/>emails · runs · pipeline_results<br/>reviews · gmail_accounts)]
-        Results[(pipeline_results<br/>latest verdict + evidence)]
-        BundleFiles[("provided bundle<br/>read-only inbox + attachments")]
-        UploadFiles[("uploads<br/>compose volume / GCS bucket")]
-        GmailFiles[("gmail-data<br/>ingested Gmail attachments")]
-        SpamModel[("spam.joblib<br/>TF-IDF + LogisticRegression")]
-    end
-
-    Ingest --> DB
-    Orchestrator -->|write result| Results
-    ReviewAPI -->|confirm or correct| Results
-    DB -->|table| Results
-    EmailAPI --> DB
-    PipelineAPI --> DB
-    ReviewAPI --> DB
-    GmailAPI --> DB
-    Submission -->|save scoreboard| DB
-    Orchestrator --> BundleFiles
-    EmailAPI --> UploadFiles
-    IntakeAPI --> UploadFiles
-    GmailAPI --> GmailFiles
-    Classify --> SpamModel
-
-    Scorer["provided scorer<br/>POST /submit<br/>private ground truth"]
-    Submission -->|score run| Scorer
-    Scorer -->|stage + final score| Submission
-
-    subgraph External["External services"]
-        Gmail["Gmail API<br/>gmail.readonly OAuth"]
-        OpenRouter["OpenRouter<br/>configurable text/vision model chains"]
-    end
-    GmailAPI --> Gmail
-    Classify -->|optional classify fallback| OpenRouter
-    Readers -->|optional scanned-PDF OCR| OpenRouter
-    Extract -->|optional missing-field fill| OpenRouter
-
-    subgraph Ops["Delivery + safeguards"]
-        CI["GitHub Actions<br/>ruff · pytest · tsc · build · image smoke"]
-        Deploy["deploy workflow<br/>Cloud Run + Vercel jobs"]
-        Budget["billing kill switch<br/>RM40/month"]
-        CI --> Deploy
-        Deploy --> Router
-        Deploy --> Pages
-        Budget -.->|disconnect billing on threshold| Router
-    end
+    API --> DB
+    Pipeline --> DB
+    Pipeline --> Files
+    Pipeline --> Model
+    Pipeline -->|score submissions| Scorer
+    Pipeline -.->|optional assists| OpenRouter
+    API -.->|local only| Gmail
 ```
 
 | Service | Image base | Port | Purpose |
@@ -520,59 +445,32 @@ repo) and the web app to Vercel, then smoke-testing what it just shipped.
 
 ```mermaid
 flowchart LR
-    subgraph Repo["GitHub delivery"]
-        Main["push to main"]
-        CI["CI workflow<br/>ruff · pytest · tsc · build · image smoke"]
-        WIF["Workload Identity Federation<br/>no service-account key"]
-        CloudDeploy["Cloud Run deploy<br/>scorer → worker → API"]
-        WebDeploy["Vercel CLI deploy<br/>when secrets are configured"]
-        Main --> CI --> CloudDeploy
-        Main --> CI --> WebDeploy
-        WIF --> CloudDeploy
+    Repo["GitHub<br/>CI + deploy on push to main"]
+    Browser["Judge / operator browser"]
+    Web["Vercel<br/>dockerops.vercel.app"]
+
+    subgraph GCP["Google Cloud · asia-southeast1"]
+        API["Cloud Run<br/>sdoc-api"]
+        Worker["Cloud Run Job<br/>sdoc-worker"]
+        Scorer["Cloud Run · sdoc-scorer<br/>IAM-private"]
+        Bucket["GCS bucket<br/>uploads"]
+        Budget["Budget killswitch<br/>RM40/month"]
     end
 
-    subgraph Edge["Public edge"]
-        Browser["Judge / operator browser"]
-        Web["Vercel · dockerops.vercel.app<br/>Next.js public app"]
-        Proxy["/api/[...path]<br/>same-origin proxy"]
-        Browser --> Web --> Proxy
-    end
+    Neon["Neon Postgres"]
+    OpenRouter["OpenRouter<br/>optional assists"]
 
-    subgraph GCP["Google Cloud · averis-email-system · asia-southeast1"]
-        AR["Artifact Registry<br/>sdoc images"]
-        API["Cloud Run · sdoc-api<br/>public HTTPS · max-instances 1"]
-        Worker["Cloud Run Job · sdoc-worker<br/>one execution per full run"]
-        Scorer["Cloud Run · sdoc-scorer<br/>IAM-private ground-truth scorer"]
-        Bucket["GCS bucket<br/>/data/uploads · 30-day lifecycle"]
-        Secrets["Secret Manager<br/>NEON_DB_URI · OPENROUTER_API_KEY · GROUND_TRUTH"]
-        Budget["Budget alert → Pub/Sub → Cloud Function<br/>disconnect billing at RM40/month"]
-        Billing["Project billing account"]
-    end
+    Browser --> Web
+    Web -->|/api/* server-side proxy| API
+    Repo -->|deploy| API
+    Repo -->|deploy| Web
 
-    subgraph Managed["Managed data + model services"]
-        Neon["Neon Postgres"]
-        OpenRouter["OpenRouter<br/>optional assists"]
-    end
-
-    CloudDeploy --> AR
-    AR --> API
-    AR --> Worker
-    AR --> Scorer
-    WebDeploy --> Web
-
-    Proxy -->|HTTPS /api/*| API
-    API -->|async SQL| Neon
-    API -->|optional model calls| OpenRouter
-    API -->|Cloud Storage FUSE| Bucket
-    API -->|OIDC ID token| Scorer
-    API -->|Run Jobs API| Worker
-    Worker -->|ingest · process · score| Neon
-    Worker -->|uploaded files| Bucket
-    Worker -->|OIDC ID token| Scorer
-    API --> Secrets
-    Worker --> Secrets
-    Scorer --> Secrets
-    Budget -.->|billing API only after threshold| Billing
+    API --> Neon
+    API -->|full runs| Worker
+    Worker --> Neon
+    API --> Bucket
+    API -->|OIDC| Scorer
+    API -.->|optional model calls| OpenRouter
 ```
 
 All routes are open to anyone with the link, so judges can browse and operate
