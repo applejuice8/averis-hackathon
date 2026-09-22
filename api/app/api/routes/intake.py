@@ -10,12 +10,12 @@ from ...repositories import emails as emails_repo
 from ...schemas.emails import ProcessOutcome
 from ...services import intake
 from ...services.processing import process_one
-from ..deps import get_db, require_reviewer
+from ..deps import get_db
 
 router = APIRouter()
 
 
-@router.post("/intake", status_code=201, response_model=ProcessOutcome, dependencies=[Depends(require_reviewer)])
+@router.post("/intake", status_code=201, response_model=ProcessOutcome)
 async def create_intake(
     sender: str = Form(""),
     subject: str = Form(""),

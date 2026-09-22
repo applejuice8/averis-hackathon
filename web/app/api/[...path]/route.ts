@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { apiBase, boundedBody, DATA_LOADED_COOKIE, gatewayError, REVIEWER_COOKIE, sameOrigin } from "@/lib/server";
+import { apiBase, boundedBody, DATA_LOADED_COOKIE, gatewayError, sameOrigin } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,9 +20,6 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
-    // Never trust a browser-supplied passcode header or forward its cookies.
-    const passcode = request.cookies.get(REVIEWER_COOKIE)?.value;
-    if (passcode) headers.set("x-demo-passcode", passcode);
     const body = writes ? await boundedBody(request.body) : undefined;
     const upstream = await fetch(`${apiBase()}/api/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`, {
       method: request.method, headers, body, cache: "no-store", redirect: "manual",

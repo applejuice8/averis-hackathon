@@ -12,7 +12,7 @@ rather than trusting this file after a redeploy.
 | Piece | Where | Access |
 |---|---|---|
 | `web` | Vercel (Next.js, project root `web`, region `sin1`) | public |
-| `sdoc-api` | Cloud Run service | public; writes need the reviewer passcode |
+| `sdoc-api` | Cloud Run service | public |
 | `sdoc-scorer` | Cloud Run service | IAM-private — only the `sdoc-api` service account may invoke it |
 | `sdoc-worker` | Cloud Run Job (same image as `sdoc-api`) | started by `sdoc-api` per run, or by an operator |
 
@@ -23,8 +23,8 @@ absent, disabled, or linked to a different account (`require_billing` in
 `scripts/gcp/common.sh`).
 
 Also created: Artifact Registry `sdoc` (keeps the 3 newest images),
-Secret Manager (`NEON_DB_URI`, `OPENROUTER_API_KEY`, `DEMO_PASSCODE`,
-`GROUND_TRUTH`), bucket `<project>-sdoc-uploads` mounted at
+Secret Manager (`NEON_DB_URI`, `OPENROUTER_API_KEY`, `GROUND_TRUTH`), bucket
+`<project>-sdoc-uploads` mounted at
 `/data/uploads` (30-day lifecycle), and the billing kill switch described
 below.
 
@@ -75,11 +75,9 @@ image tag is unchanged.
    ```
 
    Reads `NEON_DB_URI` and `OPENROUTER_API_KEY` from `.env` and pushes them
-   into Secret Manager without printing them. Prompts (hidden) for the
-   reviewer passcode; leaving it blank generates one and prints it **once**
-   — that printed line is the value to hand judges. Also uploads the answer
-   key from `secrets/`. Credential handling stays with the operator by
-   design; this step is never run on Claude's behalf.
+   into Secret Manager without printing them. Also uploads the answer key
+   from `secrets/`. Credential handling stays with the operator by design;
+   this step is never run on Claude's behalf.
 
 3. **First deploy, placeholder CORS (billable)**
 
@@ -105,9 +103,8 @@ image tag is unchanged.
    Root directory `web`, framework Next.js, region `sin1`, Node 22, the
    committed pnpm lockfile. Set the **server-side** env var `API_URL` to the
    Cloud Run API URL from step 3. Never set `NEXT_PUBLIC_API_URL`, database
-   credentials, the scorer key, or the OpenRouter key on the web project —
-   reviewer authorization and all secrets stay in the API. Keep the
-   production `API_URL` out of default preview deployments. Capture the
+   credentials, the scorer key, or the OpenRouter key on the web project.
+   Keep the production `API_URL` out of default preview deployments. Capture the
    production Vercel URL.
 
 5. **Re-deploy with the real origin**
@@ -139,11 +136,9 @@ image tag is unchanged.
      WEB_URL=https://<real>.vercel.app bash scripts/gcp/smoke.sh
    ```
 
-   Confirms: `/health` reports `writes_protected: true` and
-   `run_executor: "cloudrun-job"`; an unauthenticated `POST
-   /api/pipeline/run` is refused with 401; `GET /api/emails` returns at
-   least 520 rows; and, if `WEB_URL` is set, the web app's `/` is 200 and
-   its `/api/*` proxy reaches the API (also 401 unauthenticated).
+   Confirms: `/health` reports `run_executor: "cloudrun-job"`; `GET
+   /api/emails` returns at least 520 rows; and, if `WEB_URL` is set, the web
+   app's `/` is 200 and its `/api/*` proxy reaches the API.
 
 8. **Record**
 
@@ -164,8 +159,8 @@ rather than trusting this table after a redeploy.
 | Deployed image tag | `6e55ccb` (`.../sdoc/api:6e55ccb`) |
 | Billing guard | armed, RM40/month — recovery is manual (see below) |
 
-Verified at deploy time: `/health` reports `writes_protected: true`,
-`run_executor: cloudrun-job`, database reachable, dataset present at `/data`.
+Verified at deploy time: `/health` reports `run_executor: cloudrun-job`,
+database reachable, dataset present at `/data`.
 
 The Vercel project is currently deployed from a local CLI link
 (`npx vercel --prod` from the repo root), not the GitHub integration, because
@@ -175,25 +170,12 @@ Until an owner authorises it, production deploys are manual and pushing to
 
 ## Everyday operations
 
-### Unlocking reviewer mode
+### Public access
 
-Reads (dashboard, inbox, review queue, runs) are open to anyone with the
-link — that's deliberate, so judges can browse without a password. Every
-*write* (starting a run, confirming/overriding a review, submitting a score,
-live intake, reprocessing an email) is gated by `require_reviewer`
-(`api/app/api/deps.py`): the request must carry header `X-Demo-Passcode`
-matching the `DEMO_PASSCODE` secret, compared with `hmac.compare_digest`. A
-route-table test fails CI if any write route is left unguarded.
-
-In the web UI, unlocking goes through `web/app/auth/reviewer/route.ts`:
-`POST /auth/reviewer` with `{"passcode": "..."}` validates against
-`GET /api/auth/check` on the API, then sets an `HttpOnly`, `SameSite=Lax`
-cookie (`secure` when served over HTTPS) for 12 hours. `DELETE
-/auth/reviewer` clears it (lock again). The passcode itself never reaches
-client-side JS — the cookie carries it server-side on the proxy's calls to
-the API. If `DEMO_PASSCODE` is empty (local dev only), `require_reviewer`
-lets every write through with no passcode — this must never be true in the
-cloud deploy; `smoke.sh` fails loudly (`writes are NOT protected`) if it is.
+Dashboard, inbox, review, run, intake, Gmail, AI-assist, and write actions are
+open to anyone with the link. There is no reviewer sign-in. The API still
+limits concurrent and rolling daily pipeline runs; those limits are described
+below.
 
 ### A run is refused with 409 or 429
 
@@ -406,7 +388,6 @@ pull requests preview deployments — only the GitHub app does. If the owner
 | Symptom | Fix |
 |---|---|
 | `deploy.sh`: secret "has no versions" | run `set-secrets.sh` first |
-| `smoke.sh`: "writes are NOT protected" | `DEMO_PASSCODE` is empty — rerun `set-secrets.sh`, then `deploy.sh` |
 | UI: "Could not start the run" (502) | the worker job hand-off failed (`executor.ExecutorError`) — rerun `deploy.sh` to re-apply the job's IAM bindings |
 | Run refused with 409 | a run is already active — wait, or check `GET /api/runs` for a stuck one |
 | Run refused with 429 | the rolling 24h run allowance (`max_runs_per_day`) is used up — wait, it clears on its own |
@@ -419,7 +400,7 @@ pull requests preview deployments — only the GitHub app does. If the owner
 ## Verification
 
 Before treating any of the above as accurate for a given deploy, re-confirm
-against the live URLs: `bash scripts/gcp/smoke.sh` must print `smoke OK`, `/health` must report `writes_protected: true` and
+against the live URLs: `bash scripts/gcp/smoke.sh` must print `smoke OK`, `/health` must report
 `run_executor: "cloudrun-job"`, and `gcloud billing projects describe
 averis-email-system --project averis-email-system` must still report
 `billingEnabled: True`.

@@ -47,7 +47,7 @@ gcloud_p run services add-iam-policy-binding sdoc-scorer --region "$REGION" \
 SCORER_URL="$(deployed_url sdoc-scorer)"
 
 API_ENV="RUN_EXECUTOR=cloudrun-job,GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=$REGION,WORKER_JOB=$WORKER_JOB,SCORER_URL=$SCORER_URL,SCORER_AUTH=gcp-id-token,LOG_FORMAT=json,CORS_ORIGINS=$WEB_URL"
-API_SECRETS="NEON_DB_URI=NEON_DB_URI:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,DEMO_PASSCODE=DEMO_PASSCODE:latest"
+API_SECRETS="NEON_DB_URI=NEON_DB_URI:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest"
 # Gmail ingest (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI)
 # is deliberately not wired in here. It's optional in api/app/core/config.py
 # and degrades cleanly when unset; wiring OAuth secrets and a redirect URI

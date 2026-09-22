@@ -54,8 +54,6 @@ class Settings(BaseSettings):
     enable_llm_fill: bool = False
     enable_vision_ocr: bool = False
 
-    # demo access: an empty passcode leaves writes open (local dev only)
-    demo_passcode: str = ""
     cors_origins: str = "http://localhost:3000"
 
     # where full pipeline runs execute: "inline" (api process) or
@@ -65,7 +63,7 @@ class Settings(BaseSettings):
     gcp_region: str = ""
     worker_job: str = "sdoc-worker"
 
-    # spend guards: a published passcode must not be able to pile up billable runs
+    # spend guards: public access must not be able to pile up billable runs
     max_active_runs: int = 1
     max_runs_per_day: int = 20
 

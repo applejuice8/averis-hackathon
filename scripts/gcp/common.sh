@@ -22,7 +22,7 @@ WEB_SA="sdoc-web@$PROJECT_ID.iam.gserviceaccount.com"
 API_SA="sdoc-api@$PROJECT_ID.iam.gserviceaccount.com"
 SCORER_SA="sdoc-scorer@$PROJECT_ID.iam.gserviceaccount.com"
 DEPLOYER_SA="sdoc-deployer@$PROJECT_ID.iam.gserviceaccount.com"
-SECRETS=(NEON_DB_URI OPENROUTER_API_KEY DEMO_PASSCODE GROUND_TRUTH)
+SECRETS=(NEON_DB_URI OPENROUTER_API_KEY GROUND_TRUTH)
 
 # a python that actually runs (Windows ships a python3 stub that doesn't)
 PY=""

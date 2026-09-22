@@ -69,7 +69,7 @@ bind_secret() {
   gcloud_p secrets add-iam-policy-binding "$1" --member="serviceAccount:$2" \
     --role=roles/secretmanager.secretAccessor >/dev/null
 }
-for s in NEON_DB_URI OPENROUTER_API_KEY DEMO_PASSCODE; do bind_secret "$s" "$API_SA"; done
+for s in NEON_DB_URI OPENROUTER_API_KEY; do bind_secret "$s" "$API_SA"; done
 bind_secret GROUND_TRUTH "$SCORER_SA"
 
 step "IAM"

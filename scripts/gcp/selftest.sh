@@ -80,13 +80,6 @@ fi
 leaks="$(grep -nE '(echo|printf|cat)[^|]*\$(value|uri|NEON_DB_URI|OPENROUTER_API_KEY|GROUND_TRUTH)\b' "${TARGETS[@]}" | grep -v '| push' || true)"
 [[ -z "$leaks" ]] || fail "a script appears to print a credential value:
 $leaks"
-# The reviewer passcode: the only allowed echo of $passcode is the single,
-# clearly-labelled "generated passcode" line (a fresh demo password meant
-# to be handed to judges) — never the one the operator typed in.
-passcode_echoes="$(grep -cE 'echo.*\$passcode' "$HERE/set-secrets.sh" || true)"
-generated_label="$(grep -cE 'generated passcode.*\$passcode' "$HERE/set-secrets.sh" || true)"
-[[ "$passcode_echoes" == "1" && "$generated_label" == "1" ]] ||
-  fail "set-secrets.sh echoes \$passcode somewhere other than the labelled generated-passcode line"
 
 # --- 7. scripts fail loudly on missing required settings, before any gcloud call ---
 # bootstrap.sh: ALERT_EMAIL has no sensible default.

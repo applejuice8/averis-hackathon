@@ -81,26 +81,16 @@ def test_livez_needs_nothing(client, monkeypatch):
     assert r.json() == {"ok": True}
 
 
-def test_reports_write_protection_and_run_executor(client, monkeypatch):
+def test_reports_run_executor(client, monkeypatch):
     async def reachable():
         return {"ok": True, "emails_ingested": 0}
 
     monkeypatch.setattr(main, "_database_health", reachable)
-    monkeypatch.setattr(settings, "demo_passcode", "s3cret-pass")
     monkeypatch.setattr(settings, "run_executor", "cloudrun-job")
-    r = client.get("/health")
+    body = client.get("/health").json()
 
-    assert r.json()["writes_protected"] is True
-    assert r.json()["run_executor"] == "cloudrun-job"
-    assert "s3cret-pass" not in r.text
-
-
-def test_writes_are_reported_open_without_a_passcode(client, monkeypatch):
-    async def reachable():
-        return {"ok": True, "emails_ingested": 0}
-
-    monkeypatch.setattr(main, "_database_health", reachable)
-    assert client.get("/health").json()["writes_protected"] is False
+    assert body["run_executor"] == "cloudrun-job"
+    assert "writes_protected" not in body
 
 
 def test_cors_origins_and_uploads_root_come_from_settings(tmp_path):

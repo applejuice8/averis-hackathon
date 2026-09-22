@@ -50,5 +50,5 @@ services:
       - "8080:8000"
 
 volumes:
-  uploads:                       # writable store for reviewer-uploaded files (mirrors Cloud Run bucket mount)
+  uploads:                       # writable store for uploaded files (mirrors Cloud Run bucket mount)
   gmail-data:                    # writable store for Gmail-ingested attachments

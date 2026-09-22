@@ -133,8 +133,3 @@ def test_invalid_upload_is_a_422_and_nothing_is_stored(api):
     assert "not allowed" in r.json()["detail"]
     api.create.assert_not_awaited()
     assert not (api.root / "uploads").exists()
-
-
-def test_intake_needs_the_passcode(api, monkeypatch):
-    monkeypatch.setattr(settings, "demo_passcode", "harbour-42")
-    assert api.client.post("/api/intake", data=FORM).status_code == 401

@@ -20,7 +20,7 @@ from ...schemas.gmail import (  # noqa: E402
     GmailSyncResult,
 )
 from ...services import gmail as gmail_client  # noqa: E402
-from ..deps import get_db, require_reviewer  # noqa: E402
+from ..deps import get_db  # noqa: E402
 
 router = APIRouter()
 
@@ -62,7 +62,6 @@ async def gmail_preview_list(
 @router.post(
     "/gmail/sync",
     response_model=GmailSyncResult,
-    dependencies=[Depends(require_reviewer)],
 )
 async def gmail_sync(body: GmailSyncRequest, s: AsyncSession = Depends(get_db)):
     account = await accounts_repo.get_primary(s)
@@ -80,10 +79,7 @@ async def list_accounts(s: AsyncSession = Depends(get_db)):
     return [GmailAccountView.from_orm_row(a) for a in await accounts_repo.list_all(s)]
 
 
-@router.delete(
-    "/gmail/accounts/{account_id}",
-    dependencies=[Depends(require_reviewer)],
-)
+@router.delete("/gmail/accounts/{account_id}")
 async def delete_account(account_id: uuid.UUID, s: AsyncSession = Depends(get_db)):
     if not await accounts_repo.delete(s, account_id):
         raise HTTPException(404, "no such account")

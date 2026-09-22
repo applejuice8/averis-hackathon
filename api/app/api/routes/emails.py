@@ -20,7 +20,7 @@ from ...schemas.emails import (
 )
 from ...services import intake
 from ...services.processing import AlreadyProcessing, process_one
-from ..deps import get_db, require_reviewer
+from ..deps import get_db
 
 router = APIRouter()
 
@@ -40,7 +40,6 @@ async def list_emails(
     "/emails",
     response_model=EmailCreated,
     status_code=201,
-    dependencies=[Depends(require_reviewer)],
 )
 async def create_email(
     sender: Annotated[str, Form()] = "",
@@ -111,8 +110,7 @@ async def attachment_preview(email_id: str, index: int, s: AsyncSession = Depend
     )
 
 
-@router.post("/emails/{email_id}/reprocess", response_model=ProcessOutcome,
-             dependencies=[Depends(require_reviewer)])
+@router.post("/emails/{email_id}/reprocess", response_model=ProcessOutcome)
 async def reprocess_email(email_id: str, s: AsyncSession = Depends(get_db)):
     """Retry one email; the new result becomes the latest everywhere."""
     email = await emails_repo.get_by_id(s, email_id)

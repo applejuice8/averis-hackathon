@@ -31,8 +31,8 @@ import json, sys
 
 h = json.loads(sys.argv[1])
 
-assert h["writes_protected"] is True, \
-    "writes are NOT protected (DEMO_PASSCODE empty?)"
+assert "writes_protected" not in h, \
+    "reviewer access control is still reported"
 
 assert h["data_dir"]["present"], \
     "dataset missing from the image"
@@ -43,21 +43,6 @@ assert h["database"]["ok"], \
 assert h["run_executor"] == "cloudrun-job", \
     "api is not using the worker job"
 ' "$health" || fail "api /health (see above)"
-
-echo "==> API write protection"
-
-# Google Frontend rejects an empty POST without Content-Length with HTTP 411
-# before the request reaches FastAPI. Explicitly send Content-Length: 0 so
-# require_reviewer() can handle the request and return the expected 401.
-api_write_code="$(
-  code \
-    -X POST \
-    -H 'Content-Length: 0' \
-    "$API_URL/api/pipeline/run"
-)"
-
-[[ "$api_write_code" == "401" ]] || \
-  fail "unauthenticated run was not refused (got HTTP $api_write_code)"
 
 echo "==> Seeded email data"
 
@@ -87,12 +72,13 @@ if [[ -n "${WEB_URL:-}" ]]; then
   web_proxy_code="$(
     code \
       -X POST \
-      -H 'Content-Length: 0' \
+      -H 'Content-Type: application/json' \
       -H "Origin: $WEB_URL" \
-      "$WEB_URL/api/pipeline/run"
+      --data '{"sender":"ops@example.com","subject":"Smoke test","body":"Hello","attachments":[]}' \
+      "$WEB_URL/api/spam/detect"
   )"
 
-  [[ "$web_proxy_code" == "401" ]] || \
+  [[ "$web_proxy_code" == "200" ]] || \
     fail "web proxy did not reach the api correctly (got HTTP $web_proxy_code)"
 
   echo

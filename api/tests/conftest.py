@@ -10,7 +10,6 @@ from app.core.config import settings  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _baseline_settings(monkeypatch):
-    monkeypatch.setattr(settings, "demo_passcode", "")
     monkeypatch.setattr(settings, "run_executor", "inline")
     monkeypatch.setattr(settings, "scorer_auth", "none")
     monkeypatch.setattr(settings, "log_format", "text")
